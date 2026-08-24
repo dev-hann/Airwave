@@ -27,8 +27,7 @@
               Installed: {{ appUpdates.current || "dev" }}
               <span v-if="appUpdates.latest"> · Latest: {{ appUpdates.latest }}</span>
             </div>
-            <div v-if="appUpToDate" class="mt-1 text-xs text-muted">Up to date</div>
-            <div v-else-if="appUpdates.has_update" class="mt-1 text-xs text-primary">
+            <div v-if="appUpdates.has_update" class="mt-1 text-xs text-primary">
               Update available
             </div>
             <div v-if="appUpgrading || upgradePolling" class="mt-1 text-xs text-amber-400">
@@ -43,8 +42,9 @@
               label="Update now"
               @click="appUpgradeModalOpen = true"
             />
+            <span v-else-if="appUpToDate" class="text-xs text-muted">Up to date</span>
             <span
-              v-else-if="!appUpdates.can_upgrade && !appUpToDate && appUpdates.current"
+              v-else-if="appUpdates.has_update && appUpdates.current"
               class="text-xs text-muted"
             >
               Automatic upgrade not configured (docker deployments)

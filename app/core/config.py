@@ -86,7 +86,9 @@ class Settings(BaseSettings):
     # Keep FFmpeg reads large enough to tolerate scheduler jitter without adding
     # noticeable live-stream latency. Tiny chunks can cause occasional underruns.
     chunk_size: int = 4096
-    stream_queue_size: int = 16
+    # Per-listener buffer depth (~6.5s at 320kbps with 4KB chunks). Larger values
+    # let slow/mobile consumers survive short stalls without dropping chunks.
+    stream_queue_size: int = 64
     queue_poll_seconds: float = Field(default=1.0, ge=0.1, le=10.0)
     stream_stats_log_seconds: float = Field(default=15.0, ge=1.0, le=300.0)
     history_limit: int = 50

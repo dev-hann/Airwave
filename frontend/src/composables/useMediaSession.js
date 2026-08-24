@@ -61,11 +61,9 @@ export function useMediaSession(localPlayback) {
     if (localPlaybackStatus) {
       const local = localPlaybackStatus();
       if (local.isLocalPlaybackActive) {
-        if (local.isLocalPlaybackPaused) {
-          isPlaying = false;
-        } else {
-          isPlaying = true;
-        }
+        // Intent-driven: hold "playing" through transient recovery pauses
+        // (background stall, rejoin) so the OS notification doesn't flicker.
+        isPlaying = Boolean(local.isLocalPlaybackIntended ?? !local.isLocalPlaybackPaused);
       } else {
         isPlaying = false;
       }

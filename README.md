@@ -198,7 +198,7 @@ AIRWAVE_LOCAL_MEDIA_ROOTS=/path/to/music,/other/library
 
 AIRWAVE_MP3_BITRATE=320k
 AIRWAVE_CHUNK_SIZE=4096
-AIRWAVE_STREAM_QUEUE_SIZE=16
+AIRWAVE_STREAM_QUEUE_SIZE=64
 AIRWAVE_LOG_LEVEL=info
 
 # Optional: background playlist auto-sync (SyncService). Only playlists with Auto-sync
@@ -212,7 +212,7 @@ AIRWAVE_PLAYLIST_SYNC_MAX_CONCURRENT=2
 
 `AIRWAVE_FFMPEG_PATH` and `AIRWAVE_FFPROBE_PATH` are configured independently. Point each one to the executable you want Airwave to use.
 
-`AIRWAVE_CHUNK_SIZE` is how many bytes are read from ffmpeg’s stdout per pull into the shared stream (default `4096`). Larger values mean fewer read syscalls; very small values increase overhead and can make occasional stutters more likely. `AIRWAVE_STREAM_QUEUE_SIZE` is the max depth of the in-memory buffer between ffmpeg and connected listeners (default `16`). Raise it if devices such as Sonos underrun the live stream.
+`AIRWAVE_CHUNK_SIZE` is how many bytes are read from ffmpeg’s stdout per pull into the shared stream (default `4096`). Larger values mean fewer read syscalls; very small values increase overhead and can make occasional stutters more likely. `AIRWAVE_STREAM_QUEUE_SIZE` is the max depth of the in-memory buffer between ffmpeg and connected listeners (default `64`, ~6.5s at 320kbps). Raise it if mobile listeners underrun the live stream.
 
 ---
 

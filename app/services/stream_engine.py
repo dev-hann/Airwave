@@ -135,7 +135,7 @@ class StreamEngine:
         repository: Repository,
         yt_dlp_service: YtDlpService,
         ffmpeg_pipeline: FfmpegPipeline,
-        stream_queue_size: int = 16,
+        stream_queue_size: int = 64,
         chunk_size: int = 4096,
         queue_poll_seconds: float = 1.0,
         playback_retry_count: int = 2,

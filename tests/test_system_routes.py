@@ -19,7 +19,9 @@ def _make_client(tmp_path, **extra):
 
 
 def _reset_updates_cache():
-    system_routes._updates_cache["at"] = 0.0
+    # "at" far in the past: on short-lived CI runners time.monotonic() can be
+    # < 300s since boot, and a reset value of 0.0 would look like a fresh cache.
+    system_routes._updates_cache["at"] = -1e9
     system_routes._updates_cache["latest"] = None
 
 

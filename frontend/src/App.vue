@@ -110,11 +110,14 @@
       <DuplicateImportModal />
     </div>
 
+    <!-- Shared MP3 live-stream audio element (local browser playback) -->
+    <audio ref="localAudio" />
+
   </UApp>
 </template>
 
 <script setup>
-import { computed, onMounted, provide } from "vue";
+import { computed, onMounted, provide, ref } from "vue";
 import { useRoute } from "vue-router";
 
 import DuplicateImportModal from "./components/DuplicateImportModal.vue";
@@ -128,9 +131,9 @@ import TopBar from "./components/TopBar.vue";
 import { useBreakpoint } from "./composables/useBreakpoint";
 import { useMediaSession } from "./composables/useMediaSession";
 import { initializeLibraryState } from "./composables/useLibraryState";
+import { useLocalPlayback } from "./composables/useLocalPlayback";
 import { initializeNotifications } from "./composables/useNotifications";
 import { initializePlaybackState } from "./composables/usePlaybackState";
-import { useSendspinPlayer, initializeSendspinState } from "./composables/useSendspinPlayer";
 import { initializeSonosState } from "./composables/useSonosState";
 import {
   MOBILE_VIEW_HOME,
@@ -146,13 +149,13 @@ import { initializeTheme } from "./composables/useTheme";
 const route = useRoute();
 const isFullScreenPlayerRoute = computed(() => route.path === "/fullscreen-player" || route.path === "/fullscreen-player/");
 const { isMobile } = useBreakpoint();
+const localAudio = ref(null);
+
 const {
   startLocalPlayback,
   stopLocalPlayback,
   pauseLocalPlayback,
   resumeLocalPlayback,
-  previewClientVolume: previewSendspinClientVolume,
-  previewGroupVolume: previewSendspinGroupVolume,
   localPlaybackStatus,
   localPlaybackSessionDeps,
   isLocalPlaybackActive,
@@ -160,17 +163,7 @@ const {
   isMuted,
   setLocalVolume,
   toggleMuted,
-  isConnected: sendspinConnected,
-  volume: sendspinVolume,
-  setVolume: sendspinSetVolume,
-  setMuted: sendspinSetMuted,
-  connect: sendspinConnect,
-  disconnect: sendspinDisconnect,
-  setSyncDelay: sendspinSetSyncDelay,
-  staticDelay: sendspinStaticDelay,
-  sendspinClients,
-  sendspinGroup,
-} = useSendspinPlayer();
+} = useLocalPlayback(localAudio);
 
 provide("localPlayback", {
   startLocalPlayback,
@@ -183,22 +176,6 @@ provide("localPlayback", {
   isMuted,
   setLocalVolume,
   toggleMuted,
-});
-
-provide("sendspinPlayer", {
-  isConnected: sendspinConnected,
-  volume: sendspinVolume,
-  setVolume: sendspinSetVolume,
-  setMuted: sendspinSetMuted,
-  toggleMuted,
-  connect: sendspinConnect,
-  disconnect: sendspinDisconnect,
-  setSyncDelay: sendspinSetSyncDelay,
-  staticDelay: sendspinStaticDelay,
-  previewClientVolume: previewSendspinClientVolume,
-  previewGroupVolume: previewSendspinGroupVolume,
-  sendspinClients,
-  sendspinGroup,
 });
 
 useMediaSession({
@@ -223,7 +200,6 @@ initializeNotifications(useToast());
 onMounted(async () => {
   initializeTheme();
   initializeUiState(route);
-  initializeSendspinState();
   await Promise.allSettled([initializeLibraryState(), initializePlaybackState(), initializeSonosState()]);
 });
 </script>

@@ -5,7 +5,6 @@ import { useDuplicateModal } from "./useDuplicateModal";
 import { fetchJson } from "./useApi";
 import { useNotifications } from "./useNotifications";
 import { usePlaybackState } from "./usePlaybackState";
-import { sendSpinCommand } from "./useSendspinPlayer";
 
 const queue = ref([]);
 const history = ref([]);
@@ -456,7 +455,6 @@ export function useLibraryState() {
 
   async function skipCurrent() {
     const previousState = previewNextQueuedTrack();
-    if (sendSpinCommand("next")) return;
     try {
       await fetchJson("/api/queue/skip", { method: "POST" });
     } catch (error) {
@@ -469,7 +467,6 @@ export function useLibraryState() {
   }
 
   async function previousTrack() {
-    if (sendSpinCommand("previous")) return;
     try {
       await fetchJson("/api/playback/previous", { method: "POST" });
     } catch (error) {
@@ -485,7 +482,6 @@ export function useLibraryState() {
     applyPlaybackState({ ...playbackState.value, paused: !isPaused });
 
     if (isPaused || mode === "idle") {
-      if (sendSpinCommand("play")) return;
       try {
         await fetchJson("/api/playback/play", { method: "POST" });
       } catch (error) {
@@ -493,7 +489,6 @@ export function useLibraryState() {
         notifyError("Could not resume", error);
       }
     } else {
-      if (sendSpinCommand("pause")) return;
       try {
         await fetchJson("/api/playback/toggle-pause", { method: "POST" });
       } catch (error) {
@@ -510,7 +505,6 @@ export function useLibraryState() {
 
     const commandMap = { off: "repeat_off", one: "repeat_one", all: "repeat_all" };
     const command = commandMap[mode];
-    if (command && sendSpinCommand(command)) return;
 
     try {
       await fetchJson("/api/playback/repeat", {
@@ -530,7 +524,6 @@ export function useLibraryState() {
     applyPlaybackState({ ...playbackState.value, shuffle_enabled: !!enabled });
 
     const command = enabled ? "shuffle" : "unshuffle";
-    if (sendSpinCommand(command)) return;
 
     try {
       await fetchJson("/api/playback/shuffle", {

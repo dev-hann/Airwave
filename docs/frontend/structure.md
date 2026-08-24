@@ -13,7 +13,7 @@ Read this before touching frontend structure, state, or the build.
 No Pinia/Vuex. Plain composables + a hand-rolled event bus:
 
 - `composables/useLibraryState.js` (~810 lines) — central library/queue/playlist state. Biggest state file; be surgical when editing.
-- `composables/useSendspinPlayer.js` (~400) — browser SendSpin player/controller client.
+- `composables/useLocalPlayback.js` — browser playback of the live MP3 stream via a shared `<audio>` element in `App.vue` (volume persisted in localStorage).
 - `composables/useSonosState.js` (~240) — Sonos discovery/playback state.
 - `composables/websocketBus.js` — WS snapshot updates from the backend.
 - `composables/eventBus.js` — tiny global emitter for cross-component events.

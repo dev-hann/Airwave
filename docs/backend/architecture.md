@@ -1,6 +1,8 @@
 # Backend Architecture
 
-Read this before touching `app/services/stream_engine.py`, `app/db/repository.py`, `app/services/sendspin_service.py`, or any structural backend change.
+Read this before touching `app/services/stream_engine.py`, `app/db/repository.py`, or any structural backend change.
+
+Historical note: upstream shipped a SendSpin synchronized-playback subsystem (`sendspin_service.py`, `/api/sendspin/*`, PCM paths in FfmpegPipeline). This fork removed it entirely; browsers play `/stream/live.mp3` via a plain `<audio>` element. Do not reintroduce per-client audio paths.
 
 ## Runtime topology
 
@@ -18,13 +20,14 @@ Queue (SQLite) ──▶ StreamEngine (worker thread)
                       ▼
                   SharedMp3Hub (in-memory fan-out buffer)
                       │
-        ┌─────────────┼──────────────┐
-        ▼             ▼              ▼
-  HTTP listeners  SendSpinServer  (Sonos pulls the
-  /stream/live.mp3  PCM clients    same /stream URL)
+        ┌─────────────┴──────────────┐
+        ▼                            ▼
+  HTTP listeners                (Sonos pulls the
+  /stream/live.mp3               same /stream URL)
+  (browser <audio>)
 ```
 
-- Ports: `8000` FastAPI (API + UI + stream), `8927` SendSpin server (optional, `AIRWAVE_SENDSPIN_ENABLED`).
+- Ports: `8000` FastAPI (API + UI + stream).
 - Docker `network_mode: host` is required for Sonos SSDP discovery — do not switch to bridge networking without solving that.
 - StreamEngine runs in-process. Restarting the app always breaks the live stream. Horizontal scaling is impossible by design; do not add per-client transcoding.
 
@@ -33,8 +36,7 @@ Queue (SQLite) ──▶ StreamEngine (worker thread)
 | Module | Lines | Responsibility |
 |---|---|---|
 | `services/stream_engine.py` | ~1330 | Playback loop, prefetch, seek/shuffle/repeat, SharedMp3Hub fan-out. **God file, ~60 methods** |
-| `db/repository.py` | ~956 | All DB access + hand-rolled migrations. **God file** |
-| `services/sendspin_service.py` | ~939 | SendSpin server, PCM feed, synced playback. **God file** |
+| `db/repository.py` | ~950 | All DB access + hand-rolled migrations. **God file** |
 | `services/binaries_service.py` | ~715 | yt-dlp/ffmpeg/ffprobe/deno download, install, update |
 | `services/playlist_service.py` | ~687 | URL ingestion, playlist preview/import, queue construction |
 | `services/spotify_import_service.py` | ~506 | Spotify → YouTube/SoundCloud matching |
@@ -50,7 +52,7 @@ Queue (SQLite) ──▶ StreamEngine (worker thread)
 ## API surface
 
 - `app/api/routes.py` is a 45-line aggregator mounting **19 domain sub-routers** under `/api`.
-- Route domains live in `app/api/{system,binaries,settings,queue,media,playback,history,playlist,playlists,ws,search,sonos,sendspin,spotify}/`.
+- Route domains live in `app/api/{system,binaries,settings,queue,media,playback,history,playlist,playlists,ws,search,sonos,spotify}/`.
 - Shared helpers: `app/api/common/` — `models.py` (Pydantic schemas), `serializers.py` (`_serialize_*`, UI snapshot), `dependencies.py` (`_services(request)` accessor), `responses.py` (`GracefulStreamingResponse`).
 - 73 endpoints under `/api` (72 HTTP + 1 WS) plus root routes in `app/api/root.py` (`/` and `/stream/live.mp3`).
 - OpenAPI docs at `/docs` (auto-generated).
@@ -61,11 +63,11 @@ Queue (SQLite) ──▶ StreamEngine (worker thread)
 db  ←  services  ←  api  ←  main
 ```
 
-No reverse imports. Services import `db.models`/`db.repository`/`lib.tools` and each other downward only. `main.py:74-80` has a forward reference via closure (`notify_ui_state_changed` uses `sendspin_service` before assignment) — works, but fragile; don't copy the pattern.
+No reverse imports. Services import `db.models`/`db.repository`/`lib.tools` and each other downward only.
 
 ## Database
 
-- SQLAlchemy 2.0 declarative, typed `Mapped[]` columns (`app/db/models.py`). 6 tables: `playlists`, `queue_items`, `playlist_entries`, `play_history`, `settings`, `sendspin_clients`.
+- SQLAlchemy 2.0 declarative, typed `Mapped[]` columns (`app/db/models.py`). 5 tables: `playlists`, `queue_items`, `playlist_entries`, `play_history`, `settings`. (Legacy DBs may still contain an unused `sendspin_clients` table — harmless.)
 - **No Alembic.** Migrations run at startup via `_ensure_*_column` helpers in
   `repository.py` (`PRAGMA table_info` + `ALTER TABLE ADD COLUMN`).
   Adding a column → extend the `_ensure_*` pattern. This is the only migration path.

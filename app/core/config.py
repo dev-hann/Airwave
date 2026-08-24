@@ -99,10 +99,6 @@ class Settings(BaseSettings):
         default="",
         description="Comma-separated paths, or a JSON array string, for AIRWAVE_LOCAL_MEDIA_ROOTS",
     )
-    sendspin_enabled: bool = True
-    sendspin_port: int = 8927
-    sendspin_name: str = Field(default="Airwave", description="Name of the SendSpin server")
-    sendspin_mdns_enabled: bool = True
     # Manual app-update trigger (proxied to a Watchtower HTTP API on the host).
     # Both empty by default: the upgrade endpoint returns 503 and the UI hides the button.
     watchtower_url: str = ""

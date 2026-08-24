@@ -141,7 +141,6 @@ class StreamEngine:
         playback_retry_count: int = 2,
         stats_log_seconds: float = 15.0,
         on_state_change: Callable[[], None] | None = None,
-        pcm_listener_count_provider: Callable[[], int] | None = None,
     ) -> None:
         self.repository = repository
         self.yt_dlp_service = yt_dlp_service
@@ -169,7 +168,6 @@ class StreamEngine:
         self._tracks_failed = 0
         self._tracks_skipped = 0
         self._on_state_change = on_state_change
-        self._pcm_listener_count_provider = pcm_listener_count_provider
         self._repeat_cycle_items: list[
             tuple[str, str | None, str | None, str, str, str | None, int | None, str | None]
         ] = []
@@ -226,7 +224,7 @@ class StreamEngine:
         self._request_interrupt("user_stop")
 
     def resume_playback(self) -> str:
-        """Resume playback per the SendSpin 'play' command spec.
+        """Resume playback from a pause.
 
         * If paused: unpause.
         * If user-stopped (idle with queue): clear the stop flag and
@@ -580,9 +578,6 @@ class StreamEngine:
     def subscribe(self) -> Generator[bytes, None, None]:
         return self.hub.subscribe()
 
-    def set_pcm_listener_count_provider(self, provider: Callable[[], int] | None) -> None:
-        self._pcm_listener_count_provider = provider
-
     def playback_progress(self) -> dict[str, float | int | None]:
         elapsed_seconds: float | None = None
         if self.state.mode == PlaybackMode.playing and self.state.started_at_monotonic_seconds is not None:
@@ -604,12 +599,6 @@ class StreamEngine:
     def runtime_stats(self) -> dict[str, float | int | str | None]:
         progress = self.playback_progress()
         mp3_stream_listeners = self.hub.subscriber_count()
-        pcm_stream_listeners = 0
-        if self._pcm_listener_count_provider is not None:
-            try:
-                pcm_stream_listeners = max(0, int(self._pcm_listener_count_provider()))
-            except Exception:
-                logger.debug("Failed reading PCM listener count", exc_info=True)
         with self._stats_lock:
             total_bytes_streamed = self._total_bytes_streamed
             total_chunks_streamed = self._total_chunks_streamed
@@ -624,8 +613,7 @@ class StreamEngine:
             "mode": self.state.mode.value,
             "queued_count": self.repository.queued_count(),
             "mp3_stream_listeners": mp3_stream_listeners,
-            "pcm_stream_listeners": pcm_stream_listeners,
-            "total_listeners": mp3_stream_listeners + pcm_stream_listeners,
+            "total_listeners": mp3_stream_listeners,
             "now_playing_id": self.state.now_playing_id,
             "now_playing_title": self.state.now_playing_title,
             "elapsed_seconds": progress["elapsed_seconds"],

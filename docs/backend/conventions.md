@@ -41,7 +41,7 @@ Client disconnects and shutdown are expected cases, not exceptions. Long-running
 
 ## Preserve the shared-stream model
 
-`/stream/live.mp3` is ONE shared MP3 stream for all listeners. Never turn it into per-client transcoding or per-client offsets. SendSpin handles synchronized per-client playback on its own channel.
+`/stream/live.mp3` is ONE shared MP3 stream for all listeners. Never turn it into per-client transcoding or per-client offsets.
 
 ## Config
 

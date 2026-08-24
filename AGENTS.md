@@ -4,13 +4,15 @@ Core working guide for code agents in this repo. This file is the **index** — 
 
 ## Purpose
 
-**Airwave**: FastAPI backend + Vue/Vite frontend exposing **one shared live MP3 stream** for all clients. Users add YouTube/SoundCloud/Mixcloud URLs or playlists to a shared queue; Sonos devices consume the same stream URL as browsers; browsers can also connect as **SendSpin clients** for synchronized playback. Optional WLED/LedFX integration is external, not built in.
+**Airwave**: FastAPI backend + Vue/Vite frontend exposing **one shared live MP3 stream** for all clients. Users add YouTube/SoundCloud/Mixcloud URLs or playlists to a shared queue; browsers play the live stream directly via an `<audio>` element; Sonos devices consume the same stream URL. Optional WLED/LedFX integration is external, not built in.
+
+Historical note: upstream had a SendSpin synchronized-playback subsystem (server + browser client); this fork removed it entirely — browsers play `/stream/live.mp3` directly. Do not reintroduce per-client audio paths.
 
 This is a maintained fork (`dev-hann/Airwave`); upstream is inactive. See `docs/maintenance.md` for fork/license policy.
 
 ## Stack
 
-- Backend: Python 3.12+, FastAPI, SQLAlchemy 2, pydantic-settings, `soco`, `aiosendspin[server]`
+- Backend: Python 3.12+, FastAPI, SQLAlchemy 2, pydantic-settings, `soco`
 - Frontend: Vue 3 (`<script setup>`), file-based routing (vite-plugin-pages), `@nuxt/ui`, Vite
 - Runtime tools: `yt-dlp`, `ffmpeg`/`ffprobe`, `deno` (managed by BinariesService)
 - Storage: SQLite via `AIRWAVE_DB_URL`
@@ -19,7 +21,7 @@ This is a maintained fork (`dev-hann/Airwave`); upstream is inactive. See `docs/
 
 | Task | Read first |
 |---|---|
-| Structural backend change (StreamEngine, Repository, SendspinService, API/DB structure) | `docs/backend/architecture.md` |
+| Structural backend change (StreamEngine, Repository, API/DB structure) | `docs/backend/architecture.md` |
 | Writing/modifying backend code | `docs/backend/conventions.md` |
 | Frontend structure/state/build changes | `docs/frontend/structure.md` |
 | Writing/modifying Vue components | `docs/frontend/conventions.md` |
@@ -32,7 +34,7 @@ This is a maintained fork (`dev-hann/Airwave`); upstream is inactive. See `docs/
 
 - `app/main.py` — composition root: service wiring, lifespan
 - `app/api/` — 19 domain sub-routers mounted by `app/api/routes.py` (45-line aggregator); shared models/serializers in `app/api/common/`
-- `app/services/` — business logic (StreamEngine, PlaylistService, YtDlpService, FfmpegPipeline, SonosService, SendspinServerService, BinariesService, …)
+- `app/services/` — business logic (StreamEngine, PlaylistService, YtDlpService, FfmpegPipeline, SonosService, BinariesService, …)
 - `app/db/` — SQLAlchemy models + `repository.py` (all persistence, manual migrations)
 - `app/core/config.py` — `AIRWAVE_*` settings
 - `frontend/src/` — Vue app; builds to `app/static/dist` (served by FastAPI)
@@ -56,7 +58,7 @@ This is a maintained fork (`dev-hann/Airwave`); upstream is inactive. See `docs/
 - **No authentication** — trust model is private LAN. Auth middleware is planned; don't expose to the internet meanwhile.
 - `POST /api/binaries/install` is unauthenticated and replaces executables the server runs (known critical gap).
 - Single process, in-process StreamEngine: no horizontal scaling; restart always breaks the live stream.
-- God files needing care: `stream_engine.py` (~1330), `repository.py` (~956), `sendspin_service.py` (~939).
+- God files needing care: `stream_engine.py` (~1330), `repository.py` (~950).
 - Direct-URL ingestion has an SSRF surface (no internal-IP blocklist yet).
 - Frontend has zero tests and zero lint config.
 

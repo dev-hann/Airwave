@@ -55,10 +55,10 @@ Simple idea. Huge difference.
 
 ### 🔊 One shared live stream
 
-* Browsers connect as **SendSpin** clients
+* Browsers play the **same live MP3 stream** directly
 * All listeners hear the same thing
 * No per-user transcoding
-* **Synchronized playback** across devices (SendSpin only)
+* Sonos devices pull the same stream URL
 
 ---
 
@@ -203,12 +203,6 @@ AIRWAVE_CHUNK_SIZE=4096
 AIRWAVE_STREAM_QUEUE_SIZE=16
 AIRWAVE_LOG_LEVEL=info
 
-# Optional: SendSpin (browser clients + synchronized playback)
-AIRWAVE_SENDSPIN_ENABLED=true
-AIRWAVE_SENDSPIN_PORT=8927
-AIRWAVE_SENDSPIN_NAME=Airwave
-AIRWAVE_SENDSPIN_MDNS_ENABLED=true
-
 # Optional: background playlist auto-sync (SyncService). Only playlists with Auto-sync
 # enabled in the UI are considered each pass.
 # Target seconds between the *start* of one sync pass and the start of the next (minimum 30).
@@ -242,7 +236,6 @@ AIRWAVE_PLAYLIST_SYNC_MAX_CONCURRENT=2
 * MediaSourceResolver — local files & direct media URLs
 * PlaylistService — queue/import orchestration
 * SyncService — optional background sync for imported playlists (off per playlist until enabled)
-* SendSpinServerService — synchronized playback (optional mDNS discovery)
 * SharedMp3Hub — fan-out
 * SonosService — LAN speaker discovery, grouping, and control
 * BinariesService — yt-dlp/ffmpeg/ffprobe/deno management

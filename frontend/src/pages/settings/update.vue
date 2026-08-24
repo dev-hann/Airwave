@@ -9,6 +9,47 @@
     <div v-else-if="errorMessage" class="mt-6 text-sm text-red-400">{{ errorMessage }}</div>
 
     <div v-else class="mt-6 space-y-4">
+      <div class="rounded-lg border border-neutral-700 p-4 surface-panel">
+        <div class="flex flex-wrap items-center justify-between gap-4">
+          <div class="min-w-0">
+            <div class="font-medium flex items-center gap-2">
+              <span>Airwave app</span>
+              <a
+                v-if="appUpdates.releases_url"
+                :href="appUpdates.releases_url"
+                target="_blank"
+                class="text-xs text-muted"
+              >
+                <UIcon name="i-bi-box-arrow-up-right" class="size-3 shrink-0" aria-hidden="true" />
+              </a>
+            </div>
+            <div class="mt-1 text-sm text-muted">
+              Installed: {{ appUpdates.current || "dev" }}
+              <span v-if="appUpdates.latest"> · Latest: {{ appUpdates.latest }}</span>
+            </div>
+            <div v-if="appUpToDate" class="mt-1 text-xs text-muted">Up to date</div>
+            <div v-else-if="appUpdates.has_update" class="mt-1 text-xs text-primary">
+              Update available
+            </div>
+            <div v-if="upgrading" class="mt-1 text-xs text-amber-400">
+              Updating — the app restarts and this page reloads shortly.
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <UButton
+              v-if="appUpdates.can_upgrade"
+              :loading="appUpgrading"
+              size="sm"
+              label="Update now"
+              @click="appUpgradeModalOpen = true"
+            />
+            <span v-else class="text-xs text-muted">
+              Automatic upgrade not configured (docker deployments)
+            </span>
+          </div>
+        </div>
+      </div>
+
       <div
         v-for="b in binaries"
         :key="b.name"
@@ -89,6 +130,26 @@
         </div>
       </template>
     </UModal>
+
+    <UModal v-model:open="appUpgradeModalOpen" :ui="{ width: 'max-w-sm' }">
+      <template #content>
+        <div class="p-4">
+          <h3 class="text-lg font-semibold">Update app</h3>
+          <p class="mt-2 text-sm text-muted">
+            Pulls the latest release image and restarts the app. Playback stops for a few seconds
+            and this page reloads automatically.
+          </p>
+          <div class="mt-4 flex justify-end gap-2">
+            <UButton variant="ghost" color="neutral" @click="appUpgradeModalOpen = false">
+              Cancel
+            </UButton>
+            <UButton color="primary" :loading="appUpgrading" @click="confirmAppUpgrade">
+              Update and restart
+            </UButton>
+          </div>
+        </div>
+      </template>
+    </UModal>
   </div>
 </template>
 
@@ -103,6 +164,14 @@ const errorMessage = ref("");
 const installing = ref("");
 const confirmStopModalOpen = ref(false);
 const pendingInstallName = ref("");
+const appUpdates = ref({});
+const appUpgradeModalOpen = ref(false);
+const appUpgrading = ref(false);
+
+const appUpToDate = computed(() => {
+  const a = appUpdates.value;
+  return Boolean(a.current) && a.current !== "dev" && !a.has_update;
+});
 
 const updatesById = computed(() => {
   const byId = {};
@@ -116,12 +185,14 @@ async function load() {
   loading.value = true;
   errorMessage.value = "";
   try {
-    const [binRes, updRes] = await Promise.all([
+    const [binRes, updRes, appRes] = await Promise.all([
       fetchJson("/api/binaries"),
       fetchJson("/api/binaries/updates"),
+      fetchJson("/api/system/updates").catch(() => ({})),
     ]);
     binaries.value = binRes.binaries || [];
     updates.value = updRes.updates || [];
+    appUpdates.value = appRes;
   } catch (e) {
     errorMessage.value = e?.message || "Failed to load binary status.";
   } finally {
@@ -168,6 +239,24 @@ async function doInstall(name, stopStreamFirst) {
     errorMessage.value = e?.message || `Failed to install ${name}.`;
   } finally {
     installing.value = "";
+  }
+}
+
+async function confirmAppUpgrade() {
+  appUpgrading.value = true;
+  errorMessage.value = "";
+  try {
+    const response = await fetch("/api/system/upgrade", { method: "POST" });
+    if (!response.ok && response.status !== 502) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.detail || `Request failed: ${response.status}`);
+    }
+    appUpgradeModalOpen.value = false;
+    setTimeout(() => window.location.reload(), 20000);
+  } catch (e) {
+    errorMessage.value = e?.message || "App upgrade failed.";
+  } finally {
+    appUpgrading.value = false;
   }
 }
 

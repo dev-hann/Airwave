@@ -69,17 +69,22 @@ jobs:
           SHORT_SHA="${GITHUB_SHA::7}"
           REF_SLUG=$(echo "${{ github.ref_name }}" | tr '/' '-' | tr '[:upper:]' '[:lower:]')
           REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            APP_VERSION="${{ github.ref_name }}"
+          else
+            APP_VERSION="dev-${SHORT_SHA}"
+          fi
+          echo "version=${APP_VERSION}" >> "$GITHUB_OUTPUT"
           echo "tags<<EOF" >> "$GITHUB_OUTPUT"
+          # :latest moves only on tag pushes — releases are the deploy trigger.
           if [ "${{ github.ref_type }}" = "tag" ]; then
             echo "ghcr.io/${REPO_LOWER}:${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
             echo "ghcr.io/${REPO_LOWER}:latest" >> "$GITHUB_OUTPUT"
           else
             echo "ghcr.io/${REPO_LOWER}:${REF_SLUG}-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
-            if [ "${{ github.ref_name }}" = "main" ] || [ "${{ github.ref_name }}" = "master" ]; then
-              echo "ghcr.io/${REPO_LOWER}:latest" >> "$GITHUB_OUTPUT"
-            fi
           fi
           echo "EOF" >> "$GITHUB_OUTPUT"
+
     
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -94,4 +99,6 @@ jobs:
           context: .
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            APP_VERSION=${{ steps.meta.outputs.version }}
           file: ./Dockerfile

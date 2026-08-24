@@ -38,8 +38,33 @@ YouTube extractor changes are the most likely incident.
 
 ## Releases (this fork)
 
-- Release = git tag pushed to `origin`. CI builds and pushes `ghcr.io/dev-hann/airwave:<tag>` + `:latest` automatically.
-- No CHANGELOG file by design — `git log` is the record.
+- Release = git tag (`v0.2.0` style) pushed to `origin`. CI builds and pushes `ghcr.io/dev-hann/airwave:<tag>` **and moves `:latest` only on tag pushes** (main pushes get `main-<sha>` tags only).
+- App version is baked into the image (`AIRWAVE_APP_VERSION` env, from the CI build-arg); `GET /api/system/version` exposes it.
+
+### Deploying updates (Docker + Watchtower, manual trigger)
+
+`docker-compose.yml` ships a Watchtower service in **manual-trigger mode** (no polling): the in-app
+"Settings → Update → Update now" button calls `POST /api/system/upgrade`, which proxies to
+Watchtower's HTTP API; Watchtower pulls `:latest` and recreates the `airwave` container.
+
+Setup (once, on the Docker host):
+
+```bash
+echo "WATCHTOWER_TOKEN=$(openssl rand -hex 16)" >> .env
+docker compose up -d
+```
+
+- The button is hidden when `AIRWAVE_WATCHTOWER_URL` is unset (bare-metal deployments).
+- Restart breaks the live stream for a few seconds (in-process engine — unavoidable).
+
+### Rollback
+
+```bash
+docker tag ghcr.io/dev-hann/airwave:v0.2.0 ghcr.io/dev-hann/airwave:latest
+docker compose up -d   # recreates airwave on the rolled-back image
+```
+
+GHCR keeps every release tag; `WATCHTOWER_CLEANUP` only prunes old images on the host.
 
 ## CI
 

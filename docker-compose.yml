@@ -1,8 +1,12 @@
 # Airwave – shared live MP3 stream, queue, and Sonos control
-# Image: build locally or publish to ghcr.io (see .github/workflows/ci.yml)
+# Image: ghcr.io/dev-hann/airwave (CI builds on every push; :latest moves only on tag pushes)
 #
 # Run:  docker compose up -d
 # UI:   http://localhost:8000
+#
+# In-app updates (Settings → Update → "Update now") require the watchtower service
+# below and a WATCHTOWER_TOKEN entry in your .env file:
+#   echo "WATCHTOWER_TOKEN=$(openssl rand -hex 16)" >> .env
 
 services:
   airwave:
@@ -16,14 +20,20 @@ services:
     # This is intended for Linux Docker hosts. With host networking the app is
     # still available on http://localhost:8000 and the `ports` section is not used.
     network_mode: host
+    depends_on:
+      - watchtower
+    environment:
+      AIRWAVE_WATCHTOWER_URL: "http://127.0.0.1:8080"
+      AIRWAVE_WATCHTOWER_TOKEN: "${WATCHTOWER_TOKEN:-}"
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
     volumes:
       - ./data:/app/data
       # Mount host directories into the container and set paths inside the container.
       #- /mnt/music:/mnt/music
       #- /mnt/videos:/mnt/videos
-      
+
     # Optional env (uncomment as needed):
-    # environment:
     #   AIRWAVE_PUBLIC_BASE_URL: "http://192.168.1.50:8000"
     #   AIRWAVE_LOCAL_MEDIA_ROOTS: "/mnt/music,/mnt/videos"
     healthcheck:
@@ -32,3 +42,21 @@ services:
       timeout: 10s
       start_period: 10s
       retries: 3
+
+  # Manual-trigger updater: no polling schedule. The "Update now" button in the
+  # app calls its HTTP API (localhost:8080) to pull :latest and recreate airwave.
+  # Remove this service on bare-metal deployments.
+  watchtower:
+    image: containrrr/watchtower
+    container_name: airwave-watchtower
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      WATCHTOWER_LABEL_ENABLE: "true"
+      # Feb 31 does not exist — disables scheduled auto-polling.
+      WATCHTOWER_SCHEDULE: "0 0 31 2 *"
+      WATCHTOWER_HTTP_API_UPDATE: "true"
+      WATCHTOWER_HTTP_API_TOKEN: "${WATCHTOWER_TOKEN:?set WATCHTOWER_TOKEN in .env}"
+      WATCHTOWER_CLEANUP: "true"

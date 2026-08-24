@@ -71,6 +71,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AIRWAVE_", env_file=".env", extra="ignore")
 
     app_name: str = "Airwave"
+    # Injected by CI via Docker build-arg; "dev" for bare-metal/local runs.
+    app_version: str = "dev"
     db_url: str = "sqlite+pysqlite:///./data/airwave.db"
     host: str = "0.0.0.0"
     port: int = 8000
@@ -101,6 +103,10 @@ class Settings(BaseSettings):
     sendspin_port: int = 8927
     sendspin_name: str = Field(default="Airwave", description="Name of the SendSpin server")
     sendspin_mdns_enabled: bool = True
+    # Manual app-update trigger (proxied to a Watchtower HTTP API on the host).
+    # Both empty by default: the upgrade endpoint returns 503 and the UI hides the button.
+    watchtower_url: str = ""
+    watchtower_token: str = ""
 
     @staticmethod
     def _parse_local_media_roots_input(raw: str) -> list[str]:

@@ -1,5 +1,8 @@
 # Multi-stage build for production-ready image
+# APP_VERSION: injected by CI (git tag name or dev-<sha>); exposed to the app via env.
+ARG APP_VERSION=dev
 FROM python:3.12-slim AS builder
+ARG APP_VERSION
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -91,6 +94,7 @@ RUN ARCH=$(uname -m) \
 
 # Production stage
 FROM python:3.12-slim
+ARG APP_VERSION
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -126,6 +130,7 @@ COPY --chown=airwave:airwave --from=builder /build/bin/ffprobe ./bin/ffprobe
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
+    AIRWAVE_APP_VERSION=${APP_VERSION} \
     AIRWAVE_YT_DLP_PATH=/app/bin/yt-dlp \
     AIRWAVE_FFMPEG_PATH=/app/bin/ffmpeg \
     AIRWAVE_FFPROBE_PATH=/app/bin/ffprobe \

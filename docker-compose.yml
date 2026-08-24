@@ -6,7 +6,7 @@
 
 services:
   airwave:
-    image: ghcr.io/76696265636f646572/airwave:latest
+    image: ghcr.io/dev-hann/airwave:latest
     container_name: airwave
     restart: unless-stopped
     # Sonos discovery relies on SSDP multicast, which does not reach the default

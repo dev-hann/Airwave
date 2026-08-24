@@ -45,9 +45,10 @@ services:
 
   # Manual-trigger updater: no polling schedule. The "Update now" button in the
   # app calls its HTTP API (localhost:8080) to pull :latest and recreate airwave.
+  # (maintained fork of containrrr/watchtower — the original cannot talk to Docker 25+)
   # Remove this service on bare-metal deployments.
   watchtower:
-    image: containrrr/watchtower
+    image: ghcr.io/nicholas-fedor/watchtower:latest
     container_name: airwave-watchtower
     restart: unless-stopped
     network_mode: host

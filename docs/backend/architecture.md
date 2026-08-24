@@ -66,10 +66,9 @@ No reverse imports. Services import `db.models`/`db.repository`/`lib.tools` and 
 ## Database
 
 - SQLAlchemy 2.0 declarative, typed `Mapped[]` columns (`app/db/models.py`). 6 tables: `playlists`, `queue_items`, `playlist_entries`, `play_history`, `settings`, `sendspin_clients`.
-- **No Alembic.** Migrations happen two ways — both manual:
-  1. `_ensure_*_column` helpers in `repository.py` (`PRAGMA table_info` + `ALTER TABLE ADD COLUMN`), run at startup.
-  2. `scripts/migrate_add_playlist_pinned.sql` — standalone, run-once.
-  Adding a column → extend the `_ensure_*` pattern. Do not introduce a third migration path.
+- **No Alembic.** Migrations run at startup via `_ensure_*_column` helpers in
+  `repository.py` (`PRAGMA table_info` + `ALTER TABLE ADD COLUMN`).
+  Adding a column → extend the `_ensure_*` pattern. This is the only migration path.
 - "Liked Songs" playlist is auto-seeded (`repository.py`), `can_edit/can_delete=False`.
 - Thread lock guards queue mutations (`repository.py`).
 - SQLite file at `data/airwave.db` (gitignored).

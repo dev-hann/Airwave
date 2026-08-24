@@ -67,7 +67,8 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[dev]"     # MUST be editable; non-editable breaks static tests
 npm install
-./scripts/run_dev.sh                   # dev launcher (builds frontend if missing)
+./scripts/setup_binaries.sh           # optional: local bare-metal dev only (Docker bakes binaries in)
+./scripts/run_dev.sh                  # dev launcher (builds frontend if missing)
 ```
 
 - Backend tests: `python -m pytest` (venv python only — assume no global pytest)

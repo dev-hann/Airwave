@@ -17,6 +17,8 @@ from aiosendspin.models.types import (
     PlaybackStateType,
     RepeatMode as SendspinRepeatMode,
 )
+from aiosendspin.noise.keys import Identity, b64url_decode
+from aiosendspin.noise.trust_store import InMemoryServerPairingStore
 from aiosendspin.server import (
     AudioFormat,
     ClientAddedEvent,
@@ -149,17 +151,40 @@ class SendspinServerService:
     def server(self) -> SendspinServer | None:
         return self._server
 
+    _IDENTITY_SETTING_KEY = "sendspin:identity_private"
+
+    def _load_or_create_identity(self) -> Identity:
+        """Long-term Noise identity, persisted so clients keep trust across restarts."""
+        private_b64 = None
+        if self._repository is not None:
+            try:
+                private_b64 = self._repository.get_setting(self._IDENTITY_SETTING_KEY)
+            except Exception:
+                logger.exception("Failed to load SendSpin identity from settings")
+        if private_b64:
+            try:
+                return Identity.from_private_bytes(b64url_decode(private_b64))
+            except Exception:
+                logger.exception("Stored SendSpin identity is invalid; generating a new one")
+        identity = Identity.generate()
+        if self._repository is not None:
+            try:
+                self._repository.set_setting(self._IDENTITY_SETTING_KEY, identity.private_b64u)
+            except Exception:
+                logger.exception("Failed to persist SendSpin identity")
+        return identity
+
     @property
     def is_running(self) -> bool:
         return self._server is not None
 
     async def start(self, loop: asyncio.AbstractEventLoop) -> None:
         self._loop = loop
-        server_id = f"{self._server_name.lower().replace(' ', '-')}"
         self._server = SendspinServer(
             loop=loop,
-            server_id=server_id,
+            identity=self._load_or_create_identity(),
             server_name=self._server_name,
+            pairing_store=InMemoryServerPairingStore(),
         )
         self._unsubscribe_server = self._server.add_event_listener(self._on_server_event)
 

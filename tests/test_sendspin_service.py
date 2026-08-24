@@ -823,3 +823,22 @@ def test_notify_clients_changed_swallows_callback_errors():
 
     svc = _make_service(on_clients_changed=exploding_callback)
     svc._notify_clients_changed()  # noqa: SLF001
+
+
+# ---------------------------------------------------------------------------
+# Real aiosendspin server construction (regression: constructor API mismatch)
+# ---------------------------------------------------------------------------
+
+def test_start_constructs_real_server_and_binds():
+    """The service must construct a real SendspinServer against the installed
+    aiosendspin version and bind a port. Guards against API drift between the
+    code and the dependency (previously masked by fakes/magicmocks)."""
+    svc = _make_service(port=0, mdns_enabled=False)
+
+    async def scenario():
+        await svc.start(asyncio.get_running_loop())
+        assert svc.is_running
+        await svc.stop()
+
+    asyncio.run(scenario())
+    assert not svc.is_running

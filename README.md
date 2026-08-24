@@ -1,9 +1,9 @@
 # 🚀 Airwave  
 ### Self-hosted shared radio — everyone listens in sync
 
-![GitHub stars](https://img.shields.io/github/stars/76696265636f646572/Airwave?style=social)
-![GitHub forks](https://img.shields.io/github/forks/76696265636f646572/Airwave?style=social)
-![Python](https://img.shields.io/badge/python-3.10+-blue.svg)
+![GitHub stars](https://img.shields.io/github/stars/dev-hann/Airwave?style=social)
+![GitHub forks](https://img.shields.io/github/forks/dev-hann/Airwave?style=social)
+![Python](https://img.shields.io/badge/python-3.12+-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-API-009688.svg)
 [![Vue](https://img.shields.io/badge/Vue-3-4FC08D?logo=vuedotjs&logoColor=white)](https://vuejs.org/)
 
@@ -22,12 +22,14 @@ No accounts. No premium APIs. No “press play at the same time.”
 ## ⚡ Try it in 30 seconds
 
 ```bash
-docker run -d -p 8000:8000 ghcr.io/76696265636f646572/airwave
+docker run -d -p 8000:8000 ghcr.io/dev-hann/airwave
 ```
 
 Open → [http://localhost:8000](http://localhost:8000)
 
 Paste a link → music starts → share the URL 🎉
+
+API reference (OpenAPI): [http://localhost:8000/docs](http://localhost:8000/docs)
 
 ---
 
@@ -196,7 +198,7 @@ AIRWAVE_DENO_PATH=./bin/deno
 # Leave unset to disable local media. In Docker, bind-mount the host folders and set paths inside the container.
 AIRWAVE_LOCAL_MEDIA_ROOTS=/path/to/music,/other/library
 
-AIRWAVE_MP3_BITRATE=128k
+AIRWAVE_MP3_BITRATE=320k
 AIRWAVE_CHUNK_SIZE=4096
 AIRWAVE_STREAM_QUEUE_SIZE=16
 AIRWAVE_LOG_LEVEL=info

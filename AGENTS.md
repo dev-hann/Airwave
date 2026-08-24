@@ -4,7 +4,7 @@ Core working guide for code agents in this repo. This file is the **index** — 
 
 ## Purpose
 
-**Airwave**: FastAPI backend + Vue/Vite frontend exposing **one shared live MP3 stream** for all clients. Users add YouTube/SoundCloud/Mixcloud URLs or playlists to a shared queue; Sonos devices consume the same stream URL as browsers; browsers can also connect as **SendSpin clients** for synchronized playback. Optional WLED/LedFX integration is external, not built in.
+**Airwave**: FastAPI backend + Vue/Vite frontend exposing **one shared live MP3 stream** for all clients. Users add YouTube URLs or playlists to a shared queue (Spotify playlists are importable via YouTube matching; SoundCloud/Mixcloud support was removed in this fork); Sonos devices consume the same stream URL as browsers; browsers can also connect as **SendSpin clients** for synchronized playback. Optional WLED/LedFX integration is external, not built in.
 
 This is a maintained fork (`dev-hann/Airwave`); upstream is inactive. See `docs/maintenance.md` for fork/license policy.
 

@@ -82,6 +82,30 @@ def test_add_single_video(tmp_path):
     assert queue[0].title == "one"
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://soundcloud.com/artist/track",
+        "https://www.soundcloud.com/artist/sets/party",
+        "https://mixcloud.com/user/show/",
+        "https://www.mixcloud.com/user/show/",
+    ],
+)
+def test_retired_provider_urls_rejected(tmp_path, url):
+    repo = Repository(f"sqlite+pysqlite:///{tmp_path}/retired.db")
+    repo.init_db()
+    service = PlaylistService(repo, FakeYtDlp(playlist=False))
+
+    with pytest.raises(ValueError, match="no longer supported"):
+        service.add_url(url)
+    with pytest.raises(ValueError, match="no longer supported"):
+        service.preview_playlist(url)
+    with pytest.raises(ValueError, match="no longer supported"):
+        service.queue_playlist_url(url)
+    with pytest.raises(ValueError, match="no longer supported"):
+        service.import_playlist(url)
+
+
 def test_add_url_playlist_queues_without_importing(tmp_path):
     repo = Repository(f"sqlite+pysqlite:///{tmp_path}/playlist2.db")
     repo.init_db()

@@ -770,8 +770,7 @@ def test_cookie_settings_endpoints_persist_without_exposing_values(tmp_path):
         payload = listing.json()
         providers = {entry["provider"]: entry for entry in payload["providers"]}
         assert providers["youtube"]["configured"] is False
-        assert providers["soundcloud"]["configured"] is False
-        assert providers["mixcloud"]["configured"] is False
+        assert set(providers) == {"youtube"}
 
         cookie_value = "# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tFALSE\t0\tSID\tabc123"
         saved = client.put(

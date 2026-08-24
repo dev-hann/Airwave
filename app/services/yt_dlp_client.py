@@ -196,7 +196,6 @@ class YtDlpClient:
         bounded_limit = max(1, min(limit, 100))
         search_terms = {
             "youtube": f"ytsearch{bounded_limit}:{query}",
-            "soundcloud": f"scsearch{bounded_limit}:{query}",
         }
         search_term = search_terms.get(provider)
         if search_term is None:

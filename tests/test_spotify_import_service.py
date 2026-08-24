@@ -149,7 +149,7 @@ def test_advance_applies_first_youtube_hit(tmp_path, monkeypatch):
     }
     repo = Repository(f"sqlite+pysqlite:///{tmp_path}/simport2.db")
     repo.init_db()
-    ytdlp = FakeYtDlp(hits_by_provider={"youtube": [hit], "soundcloud": [], "mixcloud": []})
+    ytdlp = FakeYtDlp(hits_by_provider={"youtube": [hit]})
     svc = SpotifyImportService(repo, ytdlp)
     out = svc.start_import("https://open.spotify.com/playlist/p2")
     pl_uuid = UUID(out["playlist_id"])

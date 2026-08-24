@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import uuid
+from urllib.parse import urlparse
 
 from app.db.repository import NewPlaylistEntry, NewQueueItem, Repository
 from app.services.extractors.youtube import youtube_video_id_from_url
@@ -79,7 +80,24 @@ class PlaylistService:
         except ValueError:
             return False
 
+    # Providers removed in the YouTube-only fork; reject their hosts explicitly
+    # so users get a clear error instead of a confusing ffprobe/direct-URL failure.
+    _RETIRED_HOSTS = ("soundcloud.com", "www.soundcloud.com", "m.soundcloud.com", "mixcloud.com", "www.mixcloud.com")
+
+    def _is_retired_provider_url(self, url: str) -> bool:
+        try:
+            host = urlparse(url.strip().lower()).netloc
+        except ValueError:
+            return False
+        return host in self._RETIRED_HOSTS
+
+    def _reject_retired_provider(self, url: str) -> None:
+        if self._is_retired_provider_url(url):
+            raise ValueError("SoundCloud and Mixcloud are no longer supported; use YouTube, a direct media URL, or a local file")
+
     def _resolve_single_remote_url(self, url: str) -> ResolvedTrack:
+        if self._is_retired_provider_url(url):
+            raise ValueError("SoundCloud and Mixcloud are no longer supported; use YouTube, a direct media URL, or a local file")
         if self._is_provider_managed_url(url):
             return self.yt_dlp_service.resolve_video(url)
         if not url.strip().lower().startswith(("http://", "https://")):
@@ -89,6 +107,7 @@ class PlaylistService:
         return self.source_resolver.resolve_http_media(url)
 
     def add_url(self, url: str) -> dict:
+        self._reject_retired_provider(url)
         if self.yt_dlp_service.is_playlist_url(url):
             return self.queue_playlist_url(url)
         resolved = self._resolve_single_remote_url(url)
@@ -141,6 +160,7 @@ class PlaylistService:
         }
 
     def preview_playlist(self, url: str) -> PlaylistPreview:
+        self._reject_retired_provider(url)
         if is_spotify_playlist_url(url):
             return self._preview_spotify_playlist(url)
         return self.yt_dlp_service.preview_playlist(url)
@@ -183,6 +203,7 @@ class PlaylistService:
 
     def queue_playlist_url(self, url: str, *, replace: bool = False) -> dict:
         """Queue playlist entries from URL without importing to library."""
+        self._reject_retired_provider(url)
         if is_spotify_playlist_url(url):
             raise ValueError("Spotify playlists cannot be queued; import them from the Spotify import flow")
         preview = self.yt_dlp_service.preview_playlist(url)
@@ -214,6 +235,7 @@ class PlaylistService:
     def import_playlist(
         self, url: str, target_playlist_id: uuid.UUID | None = None, *, import_mode: ImportMode | None = None
     ) -> dict:
+        self._reject_retired_provider(url)
         if is_spotify_playlist_url(url):
             raise ValueError("Spotify playlists must be imported via POST /api/spotify/import")
         preview = self.yt_dlp_service.preview_playlist(url)

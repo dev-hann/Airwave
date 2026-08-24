@@ -61,7 +61,7 @@ def test_get_single_json_passes_cookies_flag(monkeypatch):
     assert "/tmp/youtube.cookies" in captured["cmd"]
 
 
-def test_search_json_passes_cookies_flag_for_soundcloud(monkeypatch):
+def test_search_json_passes_cookies_flag(monkeypatch):
     captured: dict[str, list[str]] = {}
 
     class FakePipe:
@@ -91,13 +91,14 @@ def test_search_json_passes_cookies_flag_for_soundcloud(monkeypatch):
     client = _client()
     payload = client.search_json(
         query="house",
-        provider="soundcloud",
+        provider="youtube",
         limit=5,
-        cookie_file="/tmp/soundcloud.cookies",
+        cookie_file="/tmp/youtube.cookies",
     )
     assert payload["entries"] == []
     assert "--cookies" in captured["cmd"]
-    assert "/tmp/soundcloud.cookies" in captured["cmd"]
+    assert "/tmp/youtube.cookies" in captured["cmd"]
+    assert "ytsearch5:house" in captured["cmd"]
 
 
 def test_spawn_audio_download_writes_to_file_not_stdout(monkeypatch):

@@ -17,7 +17,7 @@ from app.services.yt_dlp_service import YtDlpService
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_PROVIDERS = ["youtube", "soundcloud", "mixcloud"]
+DEFAULT_PROVIDERS = ["youtube"]
 
 
 def pending_source_url(playlist_id: uuid.UUID, position_1based: int) -> str:

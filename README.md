@@ -9,7 +9,7 @@
 
 > 🎧 **Turn any link into a shared listening experience**
 
-Paste a YouTube, SoundCloud, Mixcloud, or Spotify playlist link →  
+Paste a YouTube or Spotify playlist link →  
 Airwave creates a **single live stream** →  
 Everyone hears the **exact same audio, at the exact same time**
 
@@ -45,7 +45,7 @@ Many music apps weren’t built for **shared listening**:
 * One stream → multiple listeners
 * Works across browsers and Sonos
 * Import Spotify playlists → automatically matched to playable tracks
-* Multi-source playback (YouTube, SoundCloud, Mixcloud, direct URLs, optional local files)
+* Multi-source playback (YouTube, direct URLs, optional local files)
 
 Simple idea. Huge difference.
 
@@ -73,12 +73,10 @@ Simple idea. Huge difference.
 ### ▶️ Multi-source playback
 
 * YouTube (videos + playlists)
-* SoundCloud (tracks + sets)
-* Mixcloud (shows)
 * Direct HTTP(S) URLs to audio when ffmpeg can read them
 * Local files
 
-👉 Paste almost any music link — it just works
+👉 Paste a YouTube link — it just works
 
 ---
 
@@ -93,7 +91,7 @@ Simple idea. Huge difference.
 ### 🎵 Spotify → playable music
 
 * Import Spotify playlists into your **library**
-* Auto-match tracks to YouTube, SoundCloud, or Mixcloud
+* Auto-match tracks to YouTube
 * Review and pick the best version for your shared stream
 
 ---

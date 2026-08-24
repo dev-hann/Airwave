@@ -97,7 +97,7 @@ const loadError = ref("");
 const activeItemId = ref(null);
 const runningSearch = ref(false);
 
-const providerOrder = ["youtube", "soundcloud", "mixcloud"];
+const providerOrder = ["youtube"];
 
 const activeItem = computed(() => items.value.find((i) => i.id === activeItemId.value) || null);
 

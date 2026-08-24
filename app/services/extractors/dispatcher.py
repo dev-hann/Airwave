@@ -3,8 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.services.extractors.base import Extractor
-from app.services.extractors.mixcloud import MixcloudExtractor
-from app.services.extractors.soundcloud import SoundCloudExtractor
 from app.services.extractors.youtube import YouTubeExtractor
 
 
@@ -18,8 +16,6 @@ class ExtractorDispatcher:
     def __init__(self) -> None:
         self._extractors: list[Extractor] = [
             YouTubeExtractor(),
-            SoundCloudExtractor(),
-            MixcloudExtractor(),
         ]
 
     def get_extractor(self, url: str) -> Extractor:

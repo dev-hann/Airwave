@@ -19,8 +19,6 @@ from app.services.yt_dlp_client import YtDlpClient, YtDlpError
 
 COOKIE_PROVIDER_LABELS: dict[str, str] = {
     "youtube": "YouTube",
-    "soundcloud": "SoundCloud",
-    "mixcloud": "MixCloud",
 }
 
 
@@ -301,7 +299,7 @@ class YtDlpService:
         return preview
 
     def search(self, query: str, limit: int = 10, providers: list[str] | None = None) -> list[dict[str, Any]]:
-        active_providers = providers or ["youtube", "soundcloud", "mixcloud"]
+        active_providers = providers or ["youtube"]
         results: list[dict[str, Any]] = []
         provider_extractors: list[tuple[str, Any]] = []
         for provider in active_providers:

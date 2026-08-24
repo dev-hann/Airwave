@@ -85,21 +85,12 @@ class _CaptureClient:
             elif video_id == "missing":
                 payload.pop("url")
             return payload
-        if host == "soundcloud.com" or host.endswith(".soundcloud.com"):
-            return {
-                "id": 11,
-                "title": "SoundCloud Track",
-                "uploader": "SoundCloud Artist",
-                "duration": 240,
-                "webpage_url": "https://soundcloud.com/artist/track",
-                "url": "https://stream.example/audio.mp3",
-            }
         return {
             "id": "55",
-            "title": "Mixcloud Show",
-            "uploader": "Mix DJ",
+            "title": "Other Host Track",
+            "uploader": "Other DJ",
             "duration": 3600,
-            "webpage_url": "https://www.mixcloud.com/user/show/",
+            "webpage_url": url,
             "url": "https://stream.example/audio.mp3",
         }
 
@@ -156,8 +147,6 @@ def test_service_applies_provider_specific_cookies(tmp_path):
     repo = Repository(f"sqlite+pysqlite:///{tmp_path}/cookies.db")
     repo.init_db()
     repo.set_setting(cookie_setting_key("youtube"), "/tmp/youtube-source.txt")
-    repo.set_setting(cookie_setting_key("soundcloud"), "/tmp/soundcloud-source.txt")
-    repo.set_setting(cookie_setting_key("mixcloud"), "/tmp/mixcloud-source.txt")
 
     service = YtDlpService(
         binary_path="/bin/echo",
@@ -169,22 +158,17 @@ def test_service_applies_provider_specific_cookies(tmp_path):
     service.client = capture_client
 
     service.resolve_video("https://www.youtube.com/watch?v=abc")
-    service.resolve_video("https://soundcloud.com/artist/track")
-    service.spawn_audio_download("https://www.mixcloud.com/user/show/", "/tmp/mixcloud-audio.bin")
-    service.search(query="lofi", providers=["youtube", "soundcloud"], limit=3)
+    service.spawn_audio_download("https://www.youtube.com/watch?v=abc", "/tmp/youtube-audio.bin")
+    service.search(query="lofi", providers=["youtube"], limit=3)
 
     assert ("youtube", "/tmp/youtube-source.txt") in capture_client.resolved_values
-    assert ("soundcloud", "/tmp/soundcloud-source.txt") in capture_client.resolved_values
-    assert ("mixcloud", "/tmp/mixcloud-source.txt") in capture_client.resolved_values
     assert ("https://www.youtube.com/watch?v=abc", "/tmp/youtube.cookies") in capture_client.single_calls
-    assert ("https://soundcloud.com/artist/track", "/tmp/soundcloud.cookies") in capture_client.single_calls
     assert (
-        "https://www.mixcloud.com/user/show/",
-        "/tmp/mixcloud-audio.bin",
-        "/tmp/mixcloud.cookies",
+        "https://www.youtube.com/watch?v=abc",
+        "/tmp/youtube-audio.bin",
+        "/tmp/youtube.cookies",
     ) in capture_client.spawn_calls
     assert ("lofi", "youtube", 3, "/tmp/youtube.cookies") in capture_client.search_calls
-    assert ("lofi", "soundcloud", 3, "/tmp/soundcloud.cookies") in capture_client.search_calls
 
 
 def test_list_youtube_user_playlists_uses_youtube_cookies(tmp_path):

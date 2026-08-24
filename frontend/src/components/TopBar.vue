@@ -21,7 +21,7 @@
         <UInput
           v-model="unifiedInput"
           type="text"
-          placeholder="Search or paste URL (YouTube, SoundCloud, Mixcloud, Spotify playlist, or direct MP3/audio link)…"
+          placeholder="Search or paste URL (YouTube, Spotify playlist, or direct MP3/audio link)…"
           class="h-10 w-full min-w-0 flex-1 text-sm sm:min-w-[400px] sm:max-w-[800px]"
           >
           
@@ -137,7 +137,7 @@
             <input
               v-model="unifiedInput"
               type="text"
-              placeholder="Search or paste URL (YouTube, SoundCloud, Mixcloud, Spotify playlist, or direct MP3/audio link)…"
+              placeholder="Search or paste URL (YouTube, Spotify playlist, or direct MP3/audio link)…"
               class="h-11 w-full rounded-md border px-3 text-sm surface-input"
             />
             <div class="flex w-full">
@@ -256,14 +256,6 @@ function isCanonicalPlaylistPath(rawUrl) {
   return parsed.pathname.includes("/playlist") && !!parsed.searchParams.get("list");
 }
 
-function isSoundCloudSetUrl(rawUrl) {
-  const parsed = parseInputUrl(rawUrl);
-  if (!parsed) return false;
-  const host = parsed.hostname.toLowerCase();
-  const isSoundCloud = host === "soundcloud.com" || host === "www.soundcloud.com" || host === "m.soundcloud.com";
-  return isSoundCloud && parsed.pathname.toLowerCase().includes("/sets/");
-}
-
 function isSpotifyPlaylistUrl(rawUrl) {
   const parsed = parseInputUrl(rawUrl);
   if (!parsed) return false;
@@ -299,7 +291,6 @@ const actionContext = computed(() => {
   const rawUrl = unifiedInput.value.trim();
   if (!rawUrl) return "single";
   if (isSpotifyPlaylistUrl(rawUrl)) return "spotify-playlist";
-  if (isSoundCloudSetUrl(rawUrl)) return "playlist-capable";
   if (isCanonicalPlaylistPath(rawUrl)) return "canonical-playlist";
   if (hasPlaylistId(rawUrl) && isStartRadioUrl(rawUrl)) return "start-radio";
   if (hasPlaylistId(rawUrl)) return "playlist-capable";

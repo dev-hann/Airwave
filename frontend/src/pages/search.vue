@@ -14,7 +14,7 @@
       <input
           :value="searchText"
           type="search"
-          placeholder="Search YouTube, SoundCloud, Mixcloud"
+          placeholder="Search YouTube"
           class="h-10 w-full min-w-0 rounded-md border px-3 text-sm sm:w-[320px] surface-input"
           @input="onSearchTextChange($event.target.value)"
           @keydown.enter.prevent="onSearchSubmit(router, route, searchText)"
@@ -143,7 +143,7 @@ async function searchAll(rawQuery) {
   errorMessage.value = "";
 
   try {
-    const payload = await fetchJson(`/api/search?q=${encodeURIComponent(normalized)}&limit=50`);
+    const payload = await fetchJson(`/api/search?q=${encodeURIComponent(normalized)}&limit=20`);
     if (activeRequestId !== requestId) return;
     results.value = Array.isArray(payload?.results) ? payload.results : [];
   } catch (error) {

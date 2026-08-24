@@ -37,13 +37,13 @@ Queue (SQLite) ──▶ StreamEngine (worker thread)
 | `services/sendspin_service.py` | ~939 | SendSpin server, PCM feed, synced playback. **God file** |
 | `services/binaries_service.py` | ~715 | yt-dlp/ffmpeg/ffprobe/deno download, install, update |
 | `services/playlist_service.py` | ~687 | URL ingestion, playlist preview/import, queue construction |
-| `services/spotify_import_service.py` | ~506 | Spotify → YouTube/SoundCloud matching |
+| `services/spotify_import_service.py` | ~506 | Spotify → YouTube matching |
 | `services/yt_dlp_service.py` | ~440 | Metadata, source resolution, playlist inspection |
 | `services/sonos_service.py` | ~422 | soco discovery/grouping/control |
 | `services/ffmpeg_pipeline.py` | ~352 | ffmpeg/ffprobe spawn, transcode, probe |
 | `services/source_resolver.py` | ~313 | Local media allowlist + direct HTTP media |
 | `services/sync_service.py` | ~307 | Background playlist auto-sync |
-| `extractors/` | ~520 | youtube / soundcloud / mixcloud / base / dispatcher |
+| `extractors/` | ~300 | youtube / base / dispatcher (SoundCloud & Mixcloud extractors removed in this fork) |
 | `core/config.py` | 155 | pydantic-settings, `AIRWAVE_*` env vars |
 | `main.py` | 194 | Composition root: constructs all 13 services, wires `app.state.*` |
 

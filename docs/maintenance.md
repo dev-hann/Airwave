@@ -25,6 +25,28 @@ YouTube extractor changes are the most likely incident.
 4. **Verify**: `.venv/bin/python -m pytest` still green; queue a known track end-to-end.
 5. **Rollback**: keep the previous binary/image tag before updating (Docker: previous GHCR tag; bare metal: copy `bin/yt-dlp` aside first).
 
+## Mobile background playback (scenario #2, verified 2026-08)
+
+Symptom: audio stops after a while when the browser goes to background / screen off.
+
+Diagnosed root cause on Android: **OS battery optimization kills the browser's
+background audio fetch** — the stream connection stays open but the phone stops
+reading data (server logs fill with `MP3 hub client queue full`). The web app's
+recovery logic (v0.2.2+) cannot help when the OS blocks the data itself.
+
+Fix (per phone): disable battery optimization for the browser
+(e.g. Settings → Apps → Firefox → Battery → Unrestricted). Verified working on
+Firefox Android after this change — background playback survives.
+
+Related notes:
+- Chrome Android shows the media notification; Firefox Android may not show a
+  media-session notification at all (OS-level limitation, playback unaffected).
+- Accessing the server through a VPN tunnel (e.g. Tailscale 100.x addresses)
+  adds another throttling layer in the background — prefer direct LAN URLs at
+  home.
+- Server-side stall evidence: `docker logs airwave | grep "queue full"`.
+
+
 ## Binary management
 
 - BinariesService (`app/services/binaries_service.py`) downloads/updates yt-dlp, ffmpeg, ffprobe, deno into `bin/` (paths via `AIRWAVE_*_PATH`).

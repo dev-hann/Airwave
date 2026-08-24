@@ -9,10 +9,11 @@ const DEFAULT_SKIP_TIME = 10;
 
 function buildArtwork(thumbnailUrl) {
   const src = thumbnailUrl || FALLBACK_ARTWORK_URL;
+  // No `type`: thumbnails are webp/jpeg from providers while the fallback is
+  // png — declaring a wrong MIME makes strict browsers skip the artwork.
   return ARTWORK_SIZES.map((size) => ({
     src,
     sizes: `${size}x${size}`,
-    type: "image/png",
   }));
 }
 

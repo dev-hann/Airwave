@@ -4,7 +4,7 @@ import time
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 
 from app.api.common.dependencies import _services
 from app.api.common.serializers import _publish_ui_snapshot, _serialize_state, _stream_url
@@ -61,27 +61,29 @@ def app_updates(request: Request) -> dict[str, Any]:
     }
 
 
-@router.post("/system/upgrade")
-def upgrade_app(request: Request) -> dict[str, Any]:
+@router.post("/system/upgrade", status_code=202)
+async def upgrade_app(request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
     settings: Settings = _services(request)["settings"]
     if not settings.watchtower_url:
         raise HTTPException(status_code=503, detail="App upgrade is not configured (no Watchtower URL)")
-    headers = {}
-    if settings.watchtower_token:
-        headers["Authorization"] = f"Bearer {settings.watchtower_token}"
-    try:
-        # Fire-and-observe: Watchtower applies the update asynchronously; the app
-        # container may be replaced before this response reaches the client.
-        response = httpx.post(
-            f"{settings.watchtower_url.rstrip('/')}/v1/update",
-            headers=headers,
-            timeout=10.0,
-        )
-    except httpx.HTTPError:
-        raise HTTPException(status_code=502, detail="Watchtower is unreachable")
-    if response.status_code >= 400:
-        raise HTTPException(status_code=502, detail=f"Watchtower returned {response.status_code}")
-    return {"ok": True}
+
+    def trigger_watchtower() -> None:
+        headers = {}
+        if settings.watchtower_token:
+            headers["Authorization"] = f"Bearer {settings.watchtower_token}"
+        try:
+            # Fire-and-forget: Watchtower runs its session asynchronously (can
+            # take a minute) and may replace this very container meanwhile.
+            httpx.post(
+                f"{settings.watchtower_url.rstrip('/')}/v1/update",
+                headers=headers,
+                timeout=5.0,
+            )
+        except httpx.HTTPError:
+            pass
+
+    background_tasks.add_task(trigger_watchtower)
+    return {"ok": True, "status": "update_triggered"}
 
 
 @router.get("/state")

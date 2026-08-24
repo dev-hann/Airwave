@@ -81,7 +81,7 @@ def test_upgrade_returns_503_when_not_configured(tmp_path):
     assert response.status_code == 503
 
 
-def test_upgrade_proxies_to_watchtower(tmp_path, monkeypatch):
+def test_upgrade_triggers_watchtower_in_background(tmp_path, monkeypatch):
     calls = {}
 
     def fake_post(url, **kwargs):
@@ -96,27 +96,21 @@ def test_upgrade_proxies_to_watchtower(tmp_path, monkeypatch):
         watchtower_token="secret",
     ) as client:
         response = client.post("/api/system/upgrade")
-    assert response.status_code == 200
-    assert response.json() == {"ok": True}
+    assert response.status_code == 202
+    assert response.json() == {"ok": True, "status": "update_triggered"}
+    # Background task ran (TestClient executes it before returning).
     assert calls["url"] == "http://127.0.0.1:8080/v1/update"
     assert calls["headers"]["Authorization"] == "Bearer secret"
 
 
-def test_upgrade_returns_502_when_watchtower_down(tmp_path, monkeypatch):
+def test_upgrade_swallows_watchtower_unreachable(tmp_path, monkeypatch):
+    """Fire-and-forget: an unreachable Watchtower must not fail the request
+    after it has been accepted (the trigger already returned 202)."""
+
     def fake_post(url, **kwargs):
         raise system_routes.httpx.ConnectError("watchtower down")
 
     monkeypatch.setattr(system_routes.httpx, "post", fake_post)
     with _make_client(tmp_path, watchtower_url="http://127.0.0.1:8080") as client:
         response = client.post("/api/system/upgrade")
-    assert response.status_code == 502
-
-
-def test_upgrade_returns_502_on_watchtower_error_status(tmp_path, monkeypatch):
-    def fake_post(url, **kwargs):
-        return SimpleNamespace(status_code=401)
-
-    monkeypatch.setattr(system_routes.httpx, "post", fake_post)
-    with _make_client(tmp_path, watchtower_url="http://127.0.0.1:8080") as client:
-        response = client.post("/api/system/upgrade")
-    assert response.status_code == 502
+    assert response.status_code == 202

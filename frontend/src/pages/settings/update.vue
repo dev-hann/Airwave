@@ -31,19 +31,22 @@
             <div v-else-if="appUpdates.has_update" class="mt-1 text-xs text-primary">
               Update available
             </div>
-            <div v-if="upgrading" class="mt-1 text-xs text-amber-400">
+            <div v-if="appUpgrading || upgradePolling" class="mt-1 text-xs text-amber-400">
               Updating — the app restarts and this page reloads shortly.
             </div>
           </div>
           <div class="flex items-center gap-2">
             <UButton
-              v-if="appUpdates.can_upgrade"
+              v-if="appUpdates.has_update && appUpdates.can_upgrade"
               :loading="appUpgrading"
               size="sm"
               label="Update now"
               @click="appUpgradeModalOpen = true"
             />
-            <span v-else class="text-xs text-muted">
+            <span
+              v-else-if="!appUpdates.can_upgrade && !appUpToDate && appUpdates.current"
+              class="text-xs text-muted"
+            >
               Automatic upgrade not configured (docker deployments)
             </span>
           </div>
@@ -154,7 +157,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { fetchJson } from "../../composables/useApi";
 
 const binaries = ref([]);
@@ -242,23 +245,49 @@ async function doInstall(name, stopStreamFirst) {
   }
 }
 
+const upgradePolling = ref(false);
+let upgradePollTimer = null;
+
 async function confirmAppUpgrade() {
   appUpgrading.value = true;
   errorMessage.value = "";
   try {
     const response = await fetch("/api/system/upgrade", { method: "POST" });
-    if (!response.ok && response.status !== 502) {
+    if (!response.ok) {
       const data = await response.json().catch(() => ({}));
       throw new Error(data.detail || `Request failed: ${response.status}`);
     }
     appUpgradeModalOpen.value = false;
-    setTimeout(() => window.location.reload(), 20000);
+    // Update is now running server-side (202 accepted); the container will be
+    // replaced. Poll the version until it changes, then reload the app.
+    const versionBefore = appUpdates.value?.current || "";
+    if (upgradePollTimer) clearInterval(upgradePollTimer);
+    upgradePolling.value = true;
+    upgradePollTimer = setInterval(async () => {
+      try {
+        const res = await fetch("/api/system/version");
+        if (!res.ok) return; // server restarting — keep polling
+        const data = await res.json().catch(() => null);
+        if (data?.version && data.version !== versionBefore) {
+          clearInterval(upgradePollTimer);
+          upgradePollTimer = null;
+          upgradePolling.value = false;
+          window.location.reload();
+        }
+      } catch {
+        /* server restarting — keep polling */
+      }
+    }, 3000);
   } catch (e) {
     errorMessage.value = e?.message || "App upgrade failed.";
   } finally {
     appUpgrading.value = false;
   }
 }
+
+onUnmounted(() => {
+  if (upgradePollTimer) clearInterval(upgradePollTimer);
+});
 
 onMounted(load);
 </script>

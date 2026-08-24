@@ -685,12 +685,11 @@ class StreamEngine:
             else:
                 progress_label = f"{elapsed_seconds:.1f}s"
             logger.info(
-                "Engine stats mode=%s track=%s progress=%s mp3_stream_listeners=%s pcm_stream_listeners=%s total_listeners=%s queued=%s cache=%s recent_cache=%s prefetched_audio=%s total_bytes=%s (%s) total_chunks=%s completed=%s skipped=%s failed=%s",
+                "Engine stats mode=%s track=%s progress=%s mp3_stream_listeners=%s total_listeners=%s queued=%s cache=%s recent_cache=%s prefetched_audio=%s total_bytes=%s (%s) total_chunks=%s completed=%s skipped=%s failed=%s",
                 stats["mode"],
                 track_label,
                 progress_label,
                 stats["mp3_stream_listeners"],
-                stats["pcm_stream_listeners"],
                 stats["total_listeners"],
                 stats["queued_count"],
                 stats["cached_track_count"],

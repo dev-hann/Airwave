@@ -10,6 +10,7 @@ const REJOIN_BACKOFF_BASE_MS = 1000;
 const REJOIN_BACKOFF_MAX_MS = 8000;
 const STALL_WATCHDOG_INTERVAL_MS = 5000;
 const RECONCILE_SETTLE_MS = 250;
+const NOT_ALLOWED_MAX_RETRIES = 5;
 
 function clampVolume(value) {
   if (!Number.isFinite(value)) return DEFAULT_LOCAL_VOLUME;
@@ -67,6 +68,7 @@ export function useLocalPlayback(audioRef) {
   let userPaused = false;
   let sourceLoading = false;
   let rejoinAttempts = 0;
+  let notAllowedRetries = 0;
   let rejoinTimer = null;
   let watchdogTimer = null;
   let watchdogLastCurrentTime = -1;
@@ -108,11 +110,12 @@ export function useLocalPlayback(audioRef) {
    * Rejoin the live edge: reset src (never recreate the element — reusing it
    * preserves the iOS audio session permission) and start playback.
    */
-  async function rejoinLiveStream() {
+  async function rejoinLiveStream(reason = "rejoin") {
     const audio = audioRef.value;
     const streamUrl = playbackState.value?.stream_url;
     if (!audio || !streamUrl || !shouldRecover()) return;
 
+    console.debug("[airwave] rejoin live stream", { reason, attempt: rejoinAttempts + 1 });
     sourceLoading = true;
     audio.removeAttribute("src");
     audio.load();
@@ -124,9 +127,14 @@ export function useLocalPlayback(audioRef) {
     } catch (error) {
       // Classify the rejection instead of treating every failure as user stop.
       if (error?.name === "NotAllowedError") {
-        // Autoplay policy: wait for the next user gesture; keep connect intent.
+        // Autoplay policy: retry in the background (bounded) — mobile browsers
+        // sometimes refuse a play() right after returning to the foreground.
         sourceLoading = false;
         syncLocalAudioPausedFromElement();
+        if (notAllowedRetries < NOT_ALLOWED_MAX_RETRIES) {
+          notAllowedRetries += 1;
+          scheduleRejoin(REJOIN_BACKOFF_BASE_MS * notAllowedRetries);
+        }
         return;
       }
       if (error?.name !== "AbortError") {
@@ -325,6 +333,7 @@ export function useLocalPlayback(audioRef) {
 
   function onAudioPlaying() {
     rejoinAttempts = 0;
+    notAllowedRetries = 0;
     clearRejoinTimer();
     syncLocalAudioPausedFromElement();
   }
@@ -342,14 +351,26 @@ export function useLocalPlayback(audioRef) {
     if (audio) watchdogLastCurrentTime = audio.currentTime;
   }
 
+  function onAudioStalledOrWaiting(eventName) {
+    // Fired even in throttled background tabs; immediate recovery trigger.
+    if (!userPaused && !sourceLoading && shouldRecover() && rejoinTimer == null) {
+      console.debug("[airwave] stall event", eventName);
+      rejoinAttempts = 0;
+      scheduleRejoin(STALL_WATCHDOG_INTERVAL_MS);
+    }
+  }
+
   function runStallWatchdog() {
     const audio = audioRef.value;
     if (!audio || !shouldRecover() || userPaused) return;
     if (rejoinTimer != null) return;
 
     const paused = audio.paused || audio.ended;
+    // A frozen currentTime while not paused is a stall at ANY readyState:
+    // after a chunk drop the decoder can sit at readyState >= 3 with the
+    // clock not advancing and no pause event — the stream is dead.
     const timeFrozen = Math.abs(audio.currentTime - watchdogLastCurrentTime) < 0.05;
-    if (paused || (!paused && timeFrozen && audio.readyState < 3)) {
+    if (paused || timeFrozen) {
       maybeRecover("stall");
     }
     watchdogLastCurrentTime = audio.currentTime;
@@ -401,6 +422,8 @@ export function useLocalPlayback(audioRef) {
       audio.addEventListener("loadstart", onAudioLoadStart);
       audio.addEventListener("canplay", onAudioCanPlay);
       audio.addEventListener("timeupdate", onAudioTimeUpdate);
+      audio.addEventListener("stalled", () => onAudioStalledOrWaiting("stalled"));
+      audio.addEventListener("waiting", () => onAudioStalledOrWaiting("waiting"));
       detachAudioStateListeners = () => {
         audio.removeEventListener("play", onAudioStateEvent);
         audio.removeEventListener("pause", onAudioPause);

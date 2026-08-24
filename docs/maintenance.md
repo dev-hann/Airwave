@@ -40,7 +40,11 @@ Firefox Android after this change — background playback survives.
 
 Related notes:
 - Chrome Android shows the media notification; Firefox Android may not show a
-  media-session notification at all (OS-level limitation, playback unaffected).
+  media-session notification at all — an acknowledged Firefox limitation:
+  Firefox Android uses its own media-control component, unrelated to the
+  desktop MediaControl implementation (see bugzil.la/1648100 comment 9;
+  caniuse lists Firefox for Android as "partial" MediaSession support).
+  Playback itself is unaffected; nothing to fix in the web app.
 - Accessing the server through a VPN tunnel (e.g. Tailscale 100.x addresses)
   adds another throttling layer in the background — prefer direct LAN URLs at
   home.

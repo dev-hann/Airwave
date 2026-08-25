@@ -39,7 +39,7 @@ This is a maintained fork (`dev-hann/Airwave`); upstream is inactive. See `docs/
 - `app/db/` — SQLAlchemy models + `repository/` package (facade + store mixins; manual migrations)
 - `app/core/config.py` — `AIRWAVE_*` settings
 - `frontend/src/` — Vue app; builds to `app/static/dist` (served by FastAPI)
-- `tests/` — pytest, 268 tests (incl. architecture/port enforcement). `tests_e2e/` does **not** exist.
+- `tests/` — pytest, 270 tests (incl. architecture/port enforcement). `tests_e2e/` does **not** exist.
 
 ## Hard rules
 

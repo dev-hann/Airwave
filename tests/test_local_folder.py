@@ -3,13 +3,12 @@ from __future__ import annotations
 import pathlib
 from unittest.mock import MagicMock
 
-import pytest
 
 from app.db.repository import NewQueueItem, Repository
 from app.services.ffmpeg_pipeline import FfmpegPipeline
 from app.services.playlist_service import PlaylistService
 from app.services.source_resolver import MediaSourceResolver
-from app.services.yt_dlp_service import ResolvedTrack, YtDlpService
+from app.services.yt_dlp_service import YtDlpService
 
 
 class FakeFfmpegProbe(FfmpegPipeline):

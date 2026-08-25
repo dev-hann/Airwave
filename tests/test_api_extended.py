@@ -642,7 +642,7 @@ def test_stream_segment_endpoints(tmp_path):
 
 
 def test_binaries_endpoints(tmp_path):
-    client, app = _build_test_client(tmp_path)
+    client, _app = _build_test_client(tmp_path)
     with client:
         resp = client.get("/api/binaries")
         assert resp.status_code == 200
@@ -679,7 +679,7 @@ def test_binaries_in_use_when_playing(tmp_path):
 
 
 def test_binaries_updates_endpoint(tmp_path):
-    client, app = _build_test_client(tmp_path)
+    client, _app = _build_test_client(tmp_path)
     with client:
         resp = client.get("/api/binaries/updates")
         assert resp.status_code == 200
@@ -744,7 +744,7 @@ def test_binaries_install_stop_stream_first_calls_skip(tmp_path):
         app.state.stream_engine = fake_engine
 
         with patch.object(app.state.binaries_service, "install") as mock_install:
-            resp = client.post(
+            client.post(
                 "/api/binaries/install",
                 json={"name": "ffmpeg", "stop_stream_first": True},
             )
@@ -772,7 +772,7 @@ def test_binaries_install_returns_409_when_binary_busy(tmp_path):
 
 
 def test_binaries_install_rejects_invalid_name(tmp_path):
-    client, app = _build_test_client(tmp_path)
+    client, _app = _build_test_client(tmp_path)
     with client:
         resp = client.post("/api/binaries/install", json={"name": "invalid"})
         assert resp.status_code == 422

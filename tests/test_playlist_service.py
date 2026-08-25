@@ -231,7 +231,6 @@ def test_update_playlist_rename_for_imported(tmp_path):
     service.import_playlist("https://youtube.com/playlist?list=x")
     playlists = service.list_playlists()
     imported_id = next(p["id"] for p in playlists if p["kind"] == "imported")
-    original_title = next(p["title"] for p in playlists if p["id"] == imported_id)
 
     service.update_playlist(imported_id, title="test")
     playlists_after = service.list_playlists()

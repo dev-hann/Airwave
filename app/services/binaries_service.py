@@ -173,10 +173,10 @@ def _mr_release_numeric_newer(latest: str, current: str) -> bool:
     def parts(s: str) -> list[int]:
         return [int(x) for x in s.split(".")]
 
-    l, c = parts(latest), parts(current)
-    for i in range(max(len(l), len(c))):
-        a = l[i] if i < len(l) else 0
-        b = c[i] if i < len(c) else 0
+    latest_parts, current_parts = parts(latest), parts(current)
+    for i in range(max(len(latest_parts), len(current_parts))):
+        a = latest_parts[i] if i < len(latest_parts) else 0
+        b = current_parts[i] if i < len(current_parts) else 0
         if a > b:
             return True
         if a < b:
@@ -459,11 +459,11 @@ class BinariesService:
 
     def _yt_dlp_newer(self, latest: str, current: str) -> bool:
         try:
-            l = [int(x) for x in latest.split(".")]
-            c = [int(x) for x in current.split(".")]
-            for i in range(max(len(l), len(c))):
-                a = l[i] if i < len(l) else 0
-                b = c[i] if i < len(c) else 0
+            latest_parts = [int(x) for x in latest.split(".")]
+            current_parts = [int(x) for x in current.split(".")]
+            for i in range(max(len(latest_parts), len(current_parts))):
+                a = latest_parts[i] if i < len(latest_parts) else 0
+                b = current_parts[i] if i < len(current_parts) else 0
                 if a > b:
                     return True
                 if a < b:
@@ -477,11 +477,11 @@ class BinariesService:
             return [int(x) for x in re.findall(r"\d+", s)[:3]]
 
         try:
-            l = parse(latest)
-            c = parse(current)
+            latest_parts = parse(latest)
+            current_parts = parse(current)
             for i in range(3):
-                a = l[i] if i < len(l) else 0
-                b = c[i] if i < len(c) else 0
+                a = latest_parts[i] if i < len(latest_parts) else 0
+                b = current_parts[i] if i < len(current_parts) else 0
                 if a > b:
                     return True
                 if a < b:
@@ -691,7 +691,6 @@ def _download_and_extract_ffmpeg(url: str, target_path: str) -> None:
     suffix = ".zip" if url.lower().endswith(".zip") else ".tar.xz"
     with tempfile.TemporaryDirectory(prefix="airwave-ffmpeg-") as tmp_dir:
         archive_path = Path(tmp_dir) / f"ffmpeg{suffix}"
-        req = urllib.request.Request(url, headers={"User-Agent": GITHUB_UA})
         urllib.request.urlretrieve(url, archive_path)  # noqa: S310 - trusted GitHub release URL
         if suffix == ".zip":
             with zipfile.ZipFile(archive_path) as archive:

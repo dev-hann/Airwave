@@ -7,60 +7,31 @@ import subprocess
 import tempfile
 import threading
 import time
-from dataclasses import dataclass
 from collections import deque
-from enum import Enum
 from typing import Callable
 
 from app.db.models import QueueStatus
 from app.db.repository import NewQueueItem, Repository
+from app.domain.outcomes import (
+    AttemptFacts,
+    AttemptOutcome,
+    classify_attempt,
+    completed_unusually_fast,
+    expected_duration_seconds,
+)
+from app.domain.playback_state import PlaybackMode, PlaybackState, RepeatMode
+from app.domain.progress import playback_progress as _domain_playback_progress
+from app.domain.repeat_cycle import RepeatCycleItem, new_item_fields, repeat_cycle_item_from
+from app.domain.seek import seconds_from_percent
 from app.lib.tools import format_byte_size
 from app.services.ffmpeg_pipeline import FfmpegError, FfmpegPipeline
 from app.services.hls_segmenter import HlsSegmenter
 from app.services.yt_dlp_service import ResolvedTrack, YtDlpError, YtDlpService
 
+# Compatibility re-exports: external code imports these from stream_engine.
+__all__ = ["StreamEngine", "PlaybackMode", "PlaybackState", "RepeatMode"]
+
 logger = logging.getLogger(__name__)
-
-
-def _stderr_indicates_stream_failure(stderr_text: str) -> bool:
-    normalized = stderr_text.lower()
-    failure_markers = (
-        "input/output error",
-        "read error",
-        "error in the pull function",
-        "session has been invalidated",
-        "connection reset",
-        "end of file",
-    )
-    return any(marker in normalized for marker in failure_markers)
-
-
-class PlaybackMode(str, Enum):
-    idle = "idle"
-    playing = "playing"
-
-
-class RepeatMode(str, Enum):
-    off = "off"
-    all = "all"
-    one = "one"
-
-
-@dataclass
-class PlaybackState:
-    mode: PlaybackMode = PlaybackMode.idle
-    now_playing_id: int | None = None
-    now_playing_title: str | None = None
-    now_playing_channel: str | None = None
-    now_playing_thumbnail_url: str | None = None
-    now_playing_duration_seconds: int | None = None
-    now_playing_is_live: bool = False
-    started_at_epoch_seconds: float | None = None
-    started_at_monotonic_seconds: float | None = None
-    paused: bool = False
-    paused_elapsed_seconds: float | None = None
-    repeat_mode: RepeatMode = RepeatMode.off
-    shuffle_enabled: bool = False
 
 
 class StreamEngine:
@@ -115,9 +86,7 @@ class StreamEngine:
         self._tracks_failed = 0
         self._tracks_skipped = 0
         self._on_state_change = on_state_change
-        self._repeat_cycle_items: list[
-            tuple[str, str | None, str | None, str, str, str | None, int | None, str | None]
-        ] = []
+        self._repeat_cycle_items: list[RepeatCycleItem] = []
         self._shuffle_restore_order: list[int] | None = None
         self._prefetch_next_count = 2
         self._prefetch_previous_count = 2
@@ -202,7 +171,7 @@ class StreamEngine:
             queued = self.repository.enqueue_items(
                 [
                     NewQueueItem(
-                        source_url=previous.source_url,
+                        source_url=previous.source_url or "unknown",
                         provider=getattr(previous, "provider", None),
                         provider_item_id=getattr(previous, "provider_item_id", None),
                         normalized_url=getattr(previous, "normalized_url", None)
@@ -277,9 +246,7 @@ class StreamEngine:
         duration_seconds = self.state.now_playing_duration_seconds
         if duration_seconds is None or duration_seconds <= 0:
             return False
-        bounded_percent = max(0.0, min(100.0, float(percent)))
-        target_seconds = (bounded_percent / 100.0) * duration_seconds
-        return self.seek_to_seconds(target_seconds)
+        return self.seek_to_seconds(seconds_from_percent(percent, float(duration_seconds)))
 
     def seek_to_seconds(self, seconds: float) -> bool:
         if self.state.mode != PlaybackMode.playing:
@@ -527,22 +494,7 @@ class StreamEngine:
             self._prefetch_thread.start()
 
     def playback_progress(self) -> dict[str, float | int | None]:
-        elapsed_seconds: float | None = None
-        if self.state.mode == PlaybackMode.playing and self.state.started_at_monotonic_seconds is not None:
-            if self.state.paused and self.state.paused_elapsed_seconds is not None:
-                elapsed_seconds = max(0.0, self.state.paused_elapsed_seconds)
-            else:
-                elapsed_seconds = max(0.0, time.monotonic() - self.state.started_at_monotonic_seconds)
-        progress_percent: float | None = None
-        if elapsed_seconds is not None and self.state.now_playing_duration_seconds:
-            if self.state.now_playing_duration_seconds > 0:
-                progress_percent = min(100.0, (elapsed_seconds / self.state.now_playing_duration_seconds) * 100.0)
-        return {
-            "duration_seconds": self.state.now_playing_duration_seconds,
-            "started_at": self.state.started_at_epoch_seconds,
-            "elapsed_seconds": elapsed_seconds,
-            "progress_percent": progress_percent,
-        }
+        return _domain_playback_progress(self.state, time.monotonic())
 
     def runtime_stats(self) -> dict[str, float | int | str | None]:
         progress = self.playback_progress()
@@ -799,19 +751,7 @@ class StreamEngine:
                 queue_item = self.repository.dequeue_next()
                 if queue_item is None:
                     if self.state.repeat_mode == RepeatMode.all and self._repeat_cycle_items:
-                        replay_items = [
-                            NewQueueItem(
-                                source_url=item[0],
-                                provider=item[1],
-                                provider_item_id=item[2],
-                                normalized_url=item[3],
-                                source_type=item[4],
-                                title=item[5],
-                                duration_seconds=item[6],
-                                thumbnail_url=item[7],
-                            )
-                            for item in self._repeat_cycle_items
-                        ]
+                        replay_items = [NewQueueItem(**new_item_fields(item)) for item in self._repeat_cycle_items]
                         self._repeat_cycle_items = []
                         self.repository.enqueue_items(replay_items)
                         continue
@@ -1011,69 +951,45 @@ class StreamEngine:
                         return_code = self._process_return_code(process)
                         source_return_code = self._process_return_code(source_process) if source_process is not None else 0
                         elapsed_seconds = max(0.0, time.monotonic() - attempt_started_at)
-                        expected_duration_seconds = (
-                            probed_duration_seconds
-                            or float(resolved_duration_seconds or 0)
-                            or float(queue_item.duration_seconds or 0)
+                        expected_duration = expected_duration_seconds(
+                            probed_duration_seconds,
+                            resolved_duration_seconds,
+                            queue_item.duration_seconds,
                         )
-                        ffmpeg_stderr_text = ffmpeg_stderr_snapshot
-                        source_stderr_text = source_stderr_snapshot
-                        stderr_text = f"{ffmpeg_stderr_text}\n{source_stderr_text}".strip()
-                        premature_end = bool(
-                            expected_duration_seconds
-                            and expected_duration_seconds > 30
-                            and elapsed_seconds < expected_duration_seconds * 0.9
+                        stderr_text = f"{ffmpeg_stderr_snapshot}\n{source_stderr_snapshot}".strip()
+                        verdict = classify_attempt(
+                            AttemptFacts(
+                                ffmpeg_return_code=return_code,
+                                source_return_code=source_return_code,
+                                elapsed_seconds=elapsed_seconds,
+                                expected_seconds=expected_duration,
+                                stderr_text=stderr_text,
+                            )
                         )
-                        stderr_failure = _stderr_indicates_stream_failure(stderr_text)
-                        if return_code != 0:
-                            raise FfmpegError(f"ffmpeg exited with status {return_code}")
-                        if source_return_code != 0:
-                            raise YtDlpError(f"yt-dlp exited with status {source_return_code}")
-                        if premature_end and stderr_failure:
-                            raise YtDlpError("upstream stream ended early after transport failure")
-                        if queue_item.duration_seconds and queue_item.duration_seconds > 30:
-                            if elapsed_seconds < queue_item.duration_seconds * 0.2:
-                                logger.warning(
-                                    "Track %s (%s) completed unusually fast (elapsed=%.2fs duration=%ss bytes=%s chunks=%s)",
-                                    queue_item.id,
-                                    queue_item.title or queue_item.source_url,
-                                    elapsed_seconds,
-                                    queue_item.duration_seconds,
-                                    attempt_bytes_sent,
-                                    attempt_chunks_sent,
-                                )
+                        if verdict.outcome is AttemptOutcome.retry_ffmpeg:
+                            raise FfmpegError(verdict.reason or "ffmpeg failed")
+                        if verdict.outcome is AttemptOutcome.retry_source:
+                            raise YtDlpError(verdict.reason or "source failed")
+                        if verdict.outcome is AttemptOutcome.premature_end:
+                            raise YtDlpError(verdict.reason or "premature end")
+                        if completed_unusually_fast(elapsed_seconds, expected_duration):
+                            logger.warning(
+                                "Track %s (%s) completed unusually fast (elapsed=%.2fs duration=%ss bytes=%s chunks=%s)",
+                                queue_item.id,
+                                queue_item.title or queue_item.source_url,
+                                elapsed_seconds,
+                                queue_item.duration_seconds,
+                                attempt_bytes_sent,
+                                attempt_chunks_sent,
+                            )
                         self.repository.mark_playback_finished(queue_item.id, status=QueueStatus.completed)
                         if self.state.repeat_mode == RepeatMode.one:
                             repeated = self.repository.enqueue_items(
-                                [
-                                    NewQueueItem(
-                                        source_url=queue_item.source_url,
-                                        provider=queue_item.provider,
-                                        provider_item_id=queue_item.provider_item_id,
-                                        normalized_url=queue_item.normalized_url,
-                                        source_type=queue_item.source_type,
-                                        title=queue_item.title,
-                                        channel=queue_item.channel,
-                                        duration_seconds=queue_item.duration_seconds,
-                                        thumbnail_url=queue_item.thumbnail_url,
-                                        playlist_id=queue_item.playlist_id,
-                                    )
-                                ]
+                                [NewQueueItem(**new_item_fields(repeat_cycle_item_from(queue_item)))]
                             )
                             if repeated:
                                 self.repository.move_item_to_front(repeated[0].id)
-                        self._repeat_cycle_items.append(
-                            (
-                                queue_item.source_url,
-                                queue_item.provider,
-                                queue_item.provider_item_id,
-                                queue_item.normalized_url,
-                                queue_item.source_type,
-                                queue_item.title,
-                                queue_item.duration_seconds,
-                                queue_item.thumbnail_url,
-                            )
-                        )
+                        self._repeat_cycle_items.append(repeat_cycle_item_from(queue_item))
                         self._record_track_outcome(completed=True)
                         self._drop_prefetched_audio_path(queue_item.id)
                         self._trigger_prefetch_upcoming_tracks()
@@ -1148,20 +1064,7 @@ class StreamEngine:
                     self._record_track_outcome(skipped=True)
                     self._drop_prefetched_audio_path(queue_item.id)
                     re_queued = self.repository.enqueue_items(
-                        [
-                            NewQueueItem(
-                                source_url=queue_item.source_url,
-                                provider=queue_item.provider,
-                                provider_item_id=queue_item.provider_item_id,
-                                normalized_url=queue_item.normalized_url,
-                                source_type=queue_item.source_type,
-                                title=queue_item.title,
-                                channel=queue_item.channel,
-                                duration_seconds=queue_item.duration_seconds,
-                                thumbnail_url=queue_item.thumbnail_url,
-                                playlist_id=queue_item.playlist_id,
-                            )
-                        ]
+                        [NewQueueItem(**new_item_fields(repeat_cycle_item_from(queue_item)))]
                     )
                     if re_queued:
                         self.repository.move_item_to_front(re_queued[0].id)

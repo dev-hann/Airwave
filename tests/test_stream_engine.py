@@ -321,7 +321,6 @@ def test_paused_cycle_publishes_silence_until_resume(tmp_path):
     engine.state.paused = True
 
     def _resume_soon():
-        import time
 
         time.sleep(0.03)
         engine._request_interrupt("resume", terminate=False)  # noqa: SLF001 - regression coverage
@@ -349,7 +348,6 @@ def test_paused_cycle_consumes_resume_interrupt_when_toggle_pause_clears_paused_
     engine.state.paused_elapsed_seconds = 12.0
 
     def _resume_soon():
-        import time
 
         time.sleep(0.03)
         assert engine.toggle_pause() is False
@@ -372,7 +370,6 @@ def test_playback_bridges_silence_before_first_track_chunk(tmp_path):
 
     class SlowStartYtDlp(FakeYtDlp):
         def spawn_audio_download(self, url: str, output_path: str) -> FakeProc:
-            import time
 
             time.sleep(0.03)
             return super().spawn_audio_download(url, output_path)

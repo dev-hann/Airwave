@@ -1,7 +1,6 @@
 """Tests for YtDlpService URL detection (no subprocess)."""
 
 from dataclasses import dataclass, field
-from unittest.mock import patch
 
 import pytest
 from urllib.parse import parse_qs, urlparse

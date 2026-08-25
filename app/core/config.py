@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     # Injected by CI via Docker build-arg; "dev" for bare-metal/local runs.
     app_version: str = "dev"
     db_url: str = "sqlite+pysqlite:///./data/airwave.db"
-    host: str = "0.0.0.0"
+    host: str = "0.0.0.0"  # noqa: S104 - intentional LAN bind; see AGENTS.md trust model
     port: int = 8000
     stream_path: str = "/stream/live.m3u8"
     yt_dlp_path: str = "./bin/yt-dlp"

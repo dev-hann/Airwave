@@ -24,11 +24,55 @@ dev = [
   "pytest>=8.3.0",
   "pytest-asyncio>=0.24.0",
   "pytest-timeout>=2.3.1",
+  "ruff>=0.16.0",
+  "import-linter>=2.0",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q --timeout=300"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "A", "C4", "T20", "RUF"]
+# Legacy layers join the strict set as the clean-architecture migration
+# touches them; until then keep noise out of review diffs.
+exclude = ["app/static"]
+
+[tool.ruff.lint.per-file-ignores]
+# New clean-architecture layers: strict from day one.
+# Legacy code: relaxed until migrated (see docs/backend/clean-architecture.md).
+"app/services/*" = ["E501", "I001", "B008", "UP", "S", "A", "C4", "T201", "RUF"]
+"app/db/*" = ["E501", "I001", "UP", "S", "A", "C4", "RUF"]
+"app/api/*" = ["E501", "I001", "B008", "UP", "S", "A", "C4", "T201", "RUF"]
+"app/main.py" = ["E501", "I001", "B008", "UP", "S", "A", "C4", "T201", "RUF"]
+"tests/*" = ["S", "E501", "I001", "T201", "RUF100"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.importlinter]
+root_packages = ["app"]
+
+[[tool.importlinter.contracts]]
+name = "Domain imports nothing from the application"
+type = "forbidden"
+source_modules = ["app.domain"]
+forbidden_modules = ["app.api", "app.db", "app.services", "app.usecases", "app.main"]
+
+# NOTE: "Usecases depend only on domain" contract is re-added in migration
+# phase 3, when app/usecases/ is created (import-linter errors on missing
+# modules). tests/test_architecture.py already enforces the same rule.
+
+# NOTE: two contracts return as the migration lands:
+# - "Usecases depend only on domain" — phase 3 (app/usecases/ creation)
+# - "API layer does not reach into adapters' internals" — phase 4 (repository
+#   package split); today app.api imports NewQueueItem/NewPlaylistEntry from
+#   app.db.repository directly, which stays legal until then.
+# tests/test_architecture.py already enforces the domain/usecases rules.
 
 [tool.setuptools.packages.find]
 where = ["."]

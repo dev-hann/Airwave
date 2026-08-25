@@ -29,13 +29,13 @@ def install_binary(payload: InstallBinaryRequest, request: Request) -> dict[str,
         _publish_ui_snapshot(request)
         return {"ok": True, "name": payload.name}
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except RuntimeError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except OSError as e:
         if e.errno == 26:  # errno.ETXTBSY - Text file busy
             raise HTTPException(
                 status_code=409,
                 detail="binary_in_use",
-            )
-        raise HTTPException(status_code=500, detail=str(e))
+            ) from e
+        raise HTTPException(status_code=500, detail=str(e)) from e

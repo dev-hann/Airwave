@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 from app.db.repository import NewPlaylistEntry, Repository
 from app.services.sync_service import SyncService

@@ -1,7 +1,6 @@
 import logging
 import sys
 
-
 # ANSI escape codes for coloring
 _COLORS = {
     logging.DEBUG: "\033[36m",    # cyan

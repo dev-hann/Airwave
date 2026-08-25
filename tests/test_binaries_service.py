@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -106,7 +105,7 @@ def test_get_binaries_uses_echo_for_version(tmp_path, monkeypatch):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     # Create scripts that echo version-like output
-    for name, version_flag, output in [
+    for name, _version_flag, output in [
         ("yt-dlp", "--version", "2026.03.03"),
         ("ffmpeg", "-version", "ffmpeg version 6.1.1 Copyright"),
         ("ffprobe", "-version", "ffprobe version 6.1.1 Copyright"),

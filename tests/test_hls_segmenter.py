@@ -18,7 +18,7 @@ from app.services.hls_segmenter import HlsSegmenter
 
 
 class FakePackagerStdin:
-    def __init__(self, packager: "FakePackager") -> None:
+    def __init__(self, packager: FakePackager) -> None:
         self._packager = packager
         self.received: bytearray = bytearray()
         self.closed = False
@@ -142,7 +142,7 @@ def test_playlist_empty_when_nothing_published(harness: SegmenterHarness):
     assert text.splitlines()[0] == "#EXTM3U"
     assert "#EXT-X-ENDLIST" not in text
     assert "#EXT-X-TARGETDURATION:4" in text
-    assert f"#EXT-X-MEDIA-SEQUENCE:0" in text
+    assert "#EXT-X-MEDIA-SEQUENCE:0" in text
 
 
 def test_playlist_appends_new_segments_with_durations(harness: SegmenterHarness):

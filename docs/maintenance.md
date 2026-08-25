@@ -65,7 +65,9 @@ Related notes:
 ## Releases (this fork)
 
 - Release = git tag (`v0.2.0` style) pushed to `origin`. CI builds and pushes `ghcr.io/dev-hann/airwave:<tag>` **and moves `:latest` only on tag pushes** (main pushes get `main-<sha>` tags only).
+- CI also **creates the GitHub Release automatically** on tag pushes (`release` job: `gh release create --generate-notes --latest`). Do not create releases manually — that caused the v1.0.0/v1.1.0 gap where `releases/latest` pointed at v0.2.5 while `:latest` had moved.
 - App version is baked into the image (`AIRWAVE_APP_VERSION` env, from the CI build-arg); `GET /api/system/version` exposes it.
+- The update badge (`GET /api/system/updates`) compares versions **semver-style** (`_has_newer_version` in `app/api/system/routes.py`): a local build newer than `releases/latest`, or an unparsable version (`dev`, `dev-<sha>`), never flags an update.
 
 ### Deploying updates (Docker + Watchtower, manual trigger)
 

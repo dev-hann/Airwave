@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 from app.api.common.serializers import _serialize_state
+from app.api.system.routes import _has_newer_version, _parse_version
 from app.core.config import Settings
 from app.db.repository import NewQueueItem
 from app.main import create_app
@@ -162,3 +163,29 @@ def test_unlike_current_song_endpoint_removes_from_liked_songs(tmp_path):
         liked_pl = next(p for p in playlists if p["source_url"] == "custom://liked_songs")
         entries = client.get(f"/api/playlists/{liked_pl['id']}/entries").json()
         assert not any(e["source_url"] == "u1" for e in entries)
+
+
+def test_parse_version_handles_common_formats():
+    assert _parse_version("v1.2.3") == (1, 2, 3)
+    assert _parse_version("1.2.3") == (1, 2, 3)
+    assert _parse_version("v0.2.10") == (0, 2, 10)
+    assert _parse_version("v2") == (2,)
+    assert _parse_version("dev") is None
+    assert _parse_version("dev-abc1234") is None
+    assert _parse_version("") is None
+    assert _parse_version(None) is None
+    assert _parse_version("v1.2.3-beta") is None
+
+
+def test_has_newer_version_semver_comparison():
+    # Installed newer than latest: no update flag (was the v1.1.0 vs v0.2.5 bug).
+    assert _has_newer_version("v1.1.0", "v0.2.5") is False
+    assert _has_newer_version("v1.1.0", "v1.1.0") is False
+    assert _has_newer_version("v1.1.0", "v1.2.0") is True
+    assert _has_newer_version("v1.1.0", "v1.1.1") is True
+    assert _has_newer_version("v0.2.9", "v0.2.10") is True
+    # Dev builds or unparsable values: never flag an update.
+    assert _has_newer_version("dev", "v9.9.9") is False
+    assert _has_newer_version("dev-abc1234", "v9.9.9") is False
+    assert _has_newer_version("v1.1.0", None) is False
+    assert _has_newer_version("v1.1.0", "weird") is False

@@ -20,6 +20,27 @@ _UPDATES_CACHE_TTL_SECONDS = 300.0
 _updates_cache: dict[str, Any] = {"at": 0.0, "latest": None}
 
 
+def _parse_version(value: str | None) -> tuple[int, ...] | None:
+    """Parse 'v1.2.3' / '1.2.3' into a comparable tuple; None when unparsable
+    (e.g. 'dev', 'dev-abc1234', custom strings)."""
+    if not value:
+        return None
+    text = value.strip().lstrip("vV")
+    parts = text.split(".")
+    if not all(part.isdigit() for part in parts):
+        return None
+    return tuple(int(part) for part in parts)
+
+
+def _has_newer_version(current: str | None, latest: str | None) -> bool:
+    current_parts = _parse_version(current)
+    latest_parts = _parse_version(latest)
+    if current_parts is None or latest_parts is None:
+        # Unparsable current (dev builds) or unparsable latest: never flag an update.
+        return False
+    return latest_parts > current_parts
+
+
 @router.get("/health")
 def health(request: Request) -> dict[str, str]:
     services = _services(request)
@@ -55,7 +76,7 @@ def app_updates(request: Request) -> dict[str, Any]:
     return {
         "current": current,
         "latest": latest,
-        "has_update": bool(latest) and latest != current,
+        "has_update": _has_newer_version(current, latest),
         "can_upgrade": bool(settings.watchtower_url),
         "releases_url": f"https://github.com/{_GITHUB_REPO}/releases",
     }

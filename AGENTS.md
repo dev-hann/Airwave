@@ -21,7 +21,7 @@ This is a maintained fork (`dev-hann/Airwave`); upstream is inactive. See `docs/
 
 | Task | Read first |
 |---|---|
-| Structural backend change (StreamEngine, Repository, API/DB structure) | `docs/backend/architecture.md` |
+| Structural backend change (StreamEngine, Repository, domain/usecases, API/DB structure) | `docs/backend/architecture.md` + `docs/backend/clean-architecture.md` |
 | Writing/modifying backend code | `docs/backend/conventions.md` |
 | Frontend structure/state/build changes | `docs/frontend/structure.md` |
 | Writing/modifying Vue components | `docs/frontend/conventions.md` |
@@ -34,11 +34,12 @@ This is a maintained fork (`dev-hann/Airwave`); upstream is inactive. See `docs/
 
 - `app/main.py` — composition root: service wiring, lifespan
 - `app/api/` — 19 domain sub-routers mounted by `app/api/routes.py` (45-line aggregator); shared models/serializers in `app/api/common/`
-- `app/services/` — business logic (StreamEngine, HlsSegmenter, PlaylistService, YtDlpService, FfmpegPipeline, BinariesService, …)
-- `app/db/` — SQLAlchemy models + `repository.py` (all persistence, manual migrations)
+- `app/domain/`, `app/usecases/` — pure playback rules + play-track orchestration (see `docs/backend/clean-architecture.md`; lint-enforced isolation)
+- `app/services/` — business logic (StreamEngine session/retry, HlsSegmenter, PlaylistService, YtDlpService, FfmpegPipeline, BinariesService, …)
+- `app/db/` — SQLAlchemy models + `repository/` package (facade + store mixins; manual migrations)
 - `app/core/config.py` — `AIRWAVE_*` settings
 - `frontend/src/` — Vue app; builds to `app/static/dist` (served by FastAPI)
-- `tests/` — pytest, 159 tests. `tests_e2e/` does **not** exist.
+- `tests/` — pytest, 268 tests (incl. architecture/port enforcement). `tests_e2e/` does **not** exist.
 
 ## Hard rules
 

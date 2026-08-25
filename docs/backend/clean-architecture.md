@@ -160,11 +160,11 @@ Three gates, all in CI:
 
 | Current | Target | Status |
 |---|---|---|
-| `stream_engine._stderr_indicates_stream_failure` | `domain/outcomes.py` | planned |
-| outcome classification in `_play_item` (premature-end etc.) | `domain/outcomes.py` | planned |
-| `playback_progress` math | `domain/progress.py` | planned |
-| 8-tuple repeat-cycle bookkeeping | `domain/repeat_cycle.py` (`RepeatCycleItem`) | planned |
-| seek math, shuffle restore order | `domain/seek.py`, `domain/shuffle_order.py` | planned |
-| `_play_item` attempt body | `usecases/play_track.py` | planned |
-| retry/interrupt dispatch | `usecases/playback_session.py` | planned |
-| `repository.py` monolith | `app/db/repository/` package + facade | planned |
+| `stream_engine._stderr_indicates_stream_failure` | `domain/outcomes.py` | done |
+| outcome classification in `_play_item` (premature-end etc.) | `domain/outcomes.py` | done |
+| `playback_progress` math | `domain/progress.py` | done |
+| 8-tuple repeat-cycle bookkeeping | `domain/repeat_cycle.py` (`RepeatCycleItem`) | done |
+| seek math, shuffle restore order | `domain/seek.py`, `domain/shuffle_order.py` | done |
+| `_play_item` attempt body | `usecases/play_track.py` | done |
+| retry/interrupt dispatch | `usecases/playback_session.py` | done |
+| `repository.py` monolith | `app/db/repository/` package + facade | done (retry/interrupt dispatch stayed in the engine — simpler than a separate session module; the runner covers the attempt narrative) |

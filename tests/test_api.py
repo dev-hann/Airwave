@@ -95,7 +95,7 @@ def test_serialize_state_prefers_hq_youtube_thumbnail_over_maxres():
             "progress_percent": None,
         },
     )
-    out = _serialize_state(engine, "http://example.com/stream/live.mp3")
+    out = _serialize_state(engine, "http://example.com/stream/live.m3u8")
     assert out["now_playing_thumbnail_url"] == "https://i.ytimg.com/vi/abc123/hqdefault.jpg"
     assert out["now_playing_is_liked"] is False
 

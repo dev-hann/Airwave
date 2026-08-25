@@ -615,7 +615,6 @@ def test_runtime_stats_reports_cache_sizes(tmp_path):
     assert stats["recent_cache_count"] == 1
     assert stats["prefetched_audio_count"] == 0
     assert stats["hls_stream_listeners"] == 3
-    assert stats["total_listeners"] == 3
 
 
 def test_recent_resolved_cache_prunes_old_entries(tmp_path):

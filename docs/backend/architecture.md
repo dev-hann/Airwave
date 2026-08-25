@@ -12,19 +12,21 @@ Single process, single host:
 Queue (SQLite) ──▶ StreamEngine (worker thread)
                       │  resolves next track
                       ▼
-                  YtDlpService ──▶ yt-dlp subprocess (binary at AIRWAVE_YT_DLP_PATH)
+                   YtDlpService ──▶ yt-dlp subprocess (binary at AIRWAVE_YT_DLP_PATH)
                       │  yields direct media URL / local path
                       ▼
-                  FfmpegPipeline ──▶ ffmpeg subprocess → MP3 bytes on stdout
+                   FfmpegPipeline ──▶ per-track ffmpeg → continuous MP3 on stdout
                       │
                       ▼
-                  SharedMp3Hub (in-memory fan-out buffer)
-                      │
-        ┌─────────────┴──────────────┐
-        ▼                            ▼
-  HTTP listeners
-  /stream/live.mp3
-  (browser <audio>)
+                   HlsSegmenter ──▶ ONE long-running packager ffmpeg
+                      │               (MP3 stdin → AAC 192k MPEG-TS segments
+                      │                + sliding window on disk)
+                      ▼
+                   HTTP: /stream/live.m3u8 + /stream/segNNNNNNNNNN.ts
+                      (plain-file serving; browsers buffer via hls.js /
+                       native HLS, so slow clients never backpressure the
+                       engine — the zombie-subscriber problem is structurally
+                       gone)
 ```
 
 - Ports: `8000` FastAPI (API + UI + stream).

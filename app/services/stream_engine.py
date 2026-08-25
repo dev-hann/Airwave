@@ -561,7 +561,6 @@ class StreamEngine:
             "mode": self.state.mode.value,
             "queued_count": self.repository.queued_count(),
             "hls_stream_listeners": stream_listeners,
-            "total_listeners": stream_listeners,
             "now_playing_id": self.state.now_playing_id,
             "now_playing_title": self.state.now_playing_title,
             "elapsed_seconds": progress["elapsed_seconds"],
@@ -652,12 +651,11 @@ class StreamEngine:
             else:
                 progress_label = f"{elapsed_seconds:.1f}s"
             logger.info(
-                "Engine stats mode=%s track=%s progress=%s hls_stream_listeners=%s total_listeners=%s queued=%s cache=%s recent_cache=%s prefetched_audio=%s total_bytes=%s (%s) total_chunks=%s completed=%s skipped=%s failed=%s",
+                "Engine stats mode=%s track=%s progress=%s hls_stream_listeners=%s queued=%s cache=%s recent_cache=%s prefetched_audio=%s total_bytes=%s (%s) total_chunks=%s completed=%s skipped=%s failed=%s",
                 stats["mode"],
                 track_label,
                 progress_label,
                 stats["hls_stream_listeners"],
-                stats["total_listeners"],
                 stats["queued_count"],
                 stats["cached_track_count"],
                 stats["recent_cache_count"],

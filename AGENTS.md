@@ -44,12 +44,12 @@ This is a maintained fork (`dev-hann/Airwave`); upstream is inactive. See `docs/
 ## Hard rules
 
 1. Preserve the shared-stream model: `/stream/live.m3u8` stays ONE HLS stream for all listeners. No per-client transcoding.
-2. Layering: `db ← services ← api ← main`. No reverse imports, no business logic in route handlers, DB access only via `Repository`.
+2. Layering: `db ← services ← api ← main`, plus `domain ← usecases ← services(engine)` for the playback pipeline (see `docs/backend/clean-architecture.md`; lint-enforced). No reverse imports, no business logic in route handlers, DB access only via `Repository`.
 3. Subprocesses use list-argv only. Never `shell=True`, never interpolate URLs/paths into command strings.
 4. Shared services come from `request.app.state` (via `_services(request)`). No ad-hoc globals.
 5. Keep API payload shapes stable; contract changes update backend + frontend in one commit.
 6. Env-driven behavior goes through `app/core/config.py` (`AIRWAVE_*`), not hardcoded values.
-7. New DB columns follow the existing `_ensure_*_column` migration pattern in `repository.py` (no Alembic, no third migration path).
+7. New DB columns follow the existing `_ensure_*_column` migration pattern in `app/db/repository/migrations.py` (no Alembic, no third migration path).
 8. Vue changes require `npm run build` before finishing (CI does not build the frontend).
 9. Client disconnects/shutdown in streaming code are normal cases — handle gracefully, don't log-spam.
 10. Match existing style in touched files; no unrelated refactors.
@@ -59,7 +59,7 @@ This is a maintained fork (`dev-hann/Airwave`); upstream is inactive. See `docs/
 - **No authentication** — trust model is private LAN. Auth middleware is planned; don't expose to the internet meanwhile.
 - `POST /api/binaries/install` is unauthenticated and replaces executables the server runs (known critical gap).
 - Single process, in-process StreamEngine: no horizontal scaling; restart always breaks the live stream.
-- God files needing care: `stream_engine.py` (~1330), `repository.py` (~950).
+- Largest files needing care: `services/stream_engine.py` (~900, playback session), `services/playlist_service.py` (~690).
 - Direct-URL ingestion has an SSRF surface (no internal-IP blocklist yet).
 - Frontend has zero tests and zero lint config.
 

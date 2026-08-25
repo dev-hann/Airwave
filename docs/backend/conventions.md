@@ -5,12 +5,13 @@ Read this before writing or modifying backend code (`app/`).
 ## Layering (hard rule)
 
 ```
-db  ←  services  ←  api  ←  main
+db  ←  services  ←  api  ←  main            (plain services)
+domain  ←  usecases  ←  services(engine)     (playback pipeline — see clean-architecture.md)
 ```
 
 - `routes` validate input, call services/repository, shape responses. No business logic in handlers.
-- `services/` own business logic and orchestration.
-- `repository.py` owns all database reads/writes.
+- `services/` own business logic and orchestration. Playback attempt logic lives in `app/usecases/play_track.py` over pure rules in `app/domain/`.
+- `app/db/repository/` (package) owns all database reads/writes; routers import the facade only, never store internals.
 - No reverse imports. No ad-hoc globals — shared services come from `request.app.state` via `app/api/common/dependencies.py::_services(request)`.
 
 ## Adding an endpoint

@@ -122,8 +122,8 @@ the playback pipeline; everything else keeps the existing layered call style
 ## Facade freeze (compatibility contract)
 
 `app/services/stream_engine.py` keeps exporting `StreamEngine`,
-`PlaybackMode`, `RepeatMode`, `PlaybackState`; `app/db/repository.py` (or
-`repository/` package `__init__`) keeps exporting `Repository`,
+`PlaybackMode`, `RepeatMode`, `PlaybackState`; `app/db/repository/` (package
+`__init__`) keeps exporting `Repository`,
 `NewQueueItem`, `NewPlaylistEntry` with today's constructor/method surface.
 Import sites and test monkeypatch targets must not break during the
 migration. Internal decomposition may proceed freely behind the facade.

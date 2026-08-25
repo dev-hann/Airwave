@@ -13,11 +13,8 @@ from typing import Callable
 from app.db.models import QueueStatus
 from app.db.repository import NewQueueItem, Repository
 from app.domain.outcomes import (
-    AttemptFacts,
     AttemptOutcome,
-    classify_attempt,
     completed_unusually_fast,
-    expected_duration_seconds,
 )
 from app.domain.playback_state import PlaybackMode, PlaybackState, RepeatMode
 from app.domain.progress import playback_progress as _domain_playback_progress
@@ -27,11 +24,85 @@ from app.lib.tools import format_byte_size
 from app.services.ffmpeg_pipeline import FfmpegError, FfmpegPipeline
 from app.services.hls_segmenter import HlsSegmenter
 from app.services.yt_dlp_service import ResolvedTrack, YtDlpError, YtDlpService
+from app.usecases.play_track import TrackAttemptRequest, TrackAttemptRunner
 
 # Compatibility re-exports: external code imports these from stream_engine.
 __all__ = ["StreamEngine", "PlaybackMode", "PlaybackState", "RepeatMode"]
 
 logger = logging.getLogger(__name__)
+
+
+class _EngineAttemptHooks:
+    """Adapter exposing StreamEngine capabilities to TrackAttemptRunner
+    under the AttemptHooks protocol (clean-architecture boundary)."""
+
+    def __init__(self, engine: StreamEngine) -> None:
+        self._engine = engine
+
+    def resolve_track(self, item, force_refresh: bool) -> ResolvedTrack:
+        return self._engine._resolve_track_for_item(item, force_refresh=force_refresh)  # noqa: SLF001
+
+    def on_resolved_metadata(self, resolved: ResolvedTrack) -> None:
+        engine = self._engine
+        if resolved.thumbnail_url:
+            engine.state.now_playing_thumbnail_url = resolved.thumbnail_url
+        if resolved.channel:
+            engine.state.now_playing_channel = resolved.channel
+        engine.state.now_playing_is_live = resolved.is_live
+
+    def mark_item_resolved(self, item_id: int, normalized_url: str) -> None:
+        self._engine.repository.mark_item_resolved(item_id, normalized_url)
+
+    def remember_resolved(self, resolved: ResolvedTrack) -> None:
+        self._engine._remember_recent_resolved_track(resolved)  # noqa: SLF001
+
+    def consume_seek(self, default_seconds: float) -> float:
+        return self._engine._consume_pending_seek_seconds(default=default_seconds)  # noqa: SLF001
+
+    def set_playback_offset(self, seconds: float) -> None:
+        self._engine._set_playback_offset_seconds(seconds)  # noqa: SLF001
+
+    def get_prefetched_audio(self, item_id: int) -> str | None:
+        return self._engine._get_prefetched_audio_path(item_id)  # noqa: SLF001
+
+    def prefetch_audio(self, item_id: int, source_url: str) -> None:
+        self._engine._prefetch_audio_for_item(item_id, source_url, register_active=True)  # noqa: SLF001
+
+    def uses_direct_ffmpeg(self, item) -> bool:
+        return self._engine._item_uses_direct_ffmpeg(item)  # noqa: SLF001
+
+    def register_active_process(self, process: object) -> None:
+        self._engine._set_active_processes(process, None)  # noqa: SLF001
+
+    def trigger_prefetch_upcoming(self) -> None:
+        self._engine._trigger_prefetch_upcoming_tracks()  # noqa: SLF001
+
+    def notify_state_changed(self) -> None:
+        self._engine._notify_state_changed()  # noqa: SLF001
+
+    def start_transition_silence(self) -> tuple[object, object]:
+        stop_event, worker = self._engine._start_transition_silence()  # noqa: SLF001
+        return (stop_event, worker) if stop_event is not None and worker is not None else (None, None)
+
+    def stop_transition_silence(self, stop_event: object, worker: object) -> None:
+        self._engine._stop_transition_silence(stop_event, worker)  # type: ignore[arg-type]  # noqa: SLF001
+
+    def on_first_chunk(self) -> None:
+        self._engine._trigger_prefetch_upcoming_tracks()  # noqa: SLF001
+
+    def write_chunk(self, chunk: bytes) -> None:
+        self._engine._write_stream(chunk)  # noqa: SLF001
+
+    def check_interrupt(self) -> str | None:
+        engine = self._engine
+        if engine._stop_event.is_set():  # noqa: SLF001
+            return "stop"
+        if engine._skip_event.is_set():  # noqa: SLF001
+            return "skip"
+        return None
+
+    def consume_interrupt_reason(self) -> str:
+        return self._engine._consume_interrupt_reason()  # noqa: SLF001
 
 
 class StreamEngine:
@@ -49,6 +120,8 @@ class StreamEngine:
         hls_bitrate: str = "192k",
         hls_segmenter: HlsSegmenter | None = None,
         on_state_change: Callable[[], None] | None = None,
+        clock: Callable[[], float] | None = None,
+        sleeper: Callable[[float], None] | None = None,
     ) -> None:
         self.repository = repository
         self.yt_dlp_service = yt_dlp_service
@@ -58,6 +131,14 @@ class StreamEngine:
         self.playback_retry_count = max(0, playback_retry_count)
         self.stats_log_seconds = max(1.0, stats_log_seconds)
         self.state = PlaybackState()
+        self._clock = clock or time.monotonic
+        self._sleeper = sleeper or time.sleep
+        self._attempt_runner = TrackAttemptRunner(
+            transcoder=ffmpeg_pipeline,
+            clock=self._clock,
+            chunk_size=chunk_size,
+        )
+        self._attempt_hooks = _EngineAttemptHooks(self)
         self.segmenter = hls_segmenter or HlsSegmenter(
             lambda playlist_path, segment_pattern, *, start_number: ffmpeg_pipeline.spawn_hls_packager(
                 playlist_path,
@@ -378,7 +459,7 @@ class StreamEngine:
                 return_code = self._process_return_code(source_process)
                 if return_code is not None:
                     break
-                time.sleep(0.05)
+                self._sleeper(0.05)
             stderr_pipe = getattr(source_process, "stderr", None)
             stderr_text = (
                 stderr_pipe.read().decode("utf-8", errors="replace").strip()
@@ -494,7 +575,7 @@ class StreamEngine:
             self._prefetch_thread.start()
 
     def playback_progress(self) -> dict[str, float | int | None]:
-        return _domain_playback_progress(self.state, time.monotonic())
+        return _domain_playback_progress(self.state, self._clock())
 
     def runtime_stats(self) -> dict[str, float | int | str | None]:
         progress = self.playback_progress()
@@ -694,7 +775,7 @@ class StreamEngine:
     def _set_playback_offset_seconds(self, seconds: float) -> None:
         offset = max(0.0, float(seconds))
         self.state.started_at_epoch_seconds = time.time() - offset
-        self.state.started_at_monotonic_seconds = time.monotonic() - offset
+        self.state.started_at_monotonic_seconds = self._clock() - offset
 
     def _set_pending_seek_seconds(self, seconds: float) -> None:
         with self._control_lock:
@@ -762,7 +843,7 @@ class StreamEngine:
                 self._play_item(queue_item.id)
             except Exception:
                 logger.exception("Stream engine loop failed; retrying")
-                time.sleep(self.queue_poll_seconds)
+                self._sleeper(self.queue_poll_seconds)
 
     def _stream_idle_cycle(self) -> None:
         self.state.mode = PlaybackMode.idle
@@ -781,10 +862,10 @@ class StreamEngine:
             process = self.ffmpeg_pipeline.spawn_silence()
         except FfmpegError as exc:
             logger.error("%s", exc)
-            time.sleep(self.queue_poll_seconds)
+            self._sleeper(self.queue_poll_seconds)
             return
         self._set_active_processes(process)
-        idle_start = time.monotonic()
+        idle_start = self._clock()
         try:
             while not self._stop_event.is_set():
                 if self._skip_event.is_set():
@@ -797,8 +878,8 @@ class StreamEngine:
                 if not chunk:
                     break
                 self._write_stream(chunk)
-                if time.monotonic() - idle_start >= self.queue_poll_seconds:
-                    idle_start = time.monotonic()
+                if self._clock() - idle_start >= self.queue_poll_seconds:
+                    idle_start = self._clock()
                     if not self._user_stopped and self.repository.has_queued_items():
                         break
         finally:
@@ -821,8 +902,6 @@ class StreamEngine:
         self.state.paused_elapsed_seconds = None
         total_bytes_sent = 0
         total_chunks_sent = 0
-        resolved_duration_seconds: int | None = None
-        probed_duration_seconds: float | None = None
         while not self._stop_event.is_set():
             self._skip_event.clear()
             total_attempts = self.playback_retry_count + 1
@@ -830,193 +909,68 @@ class StreamEngine:
                 for attempt in range(1, total_attempts + 1):
                     if self._stop_event.is_set():
                         raise InterruptedError("stop")
-                    transition_silence_stop: threading.Event | None = None
-                    transition_silence_worker: threading.Thread | None = None
                     try:
-                        transition_silence_stop, transition_silence_worker = self._start_transition_silence()
-                        resolved = self._resolve_track_for_item(queue_item, force_refresh=attempt > 1)
-                        resolved_duration_seconds = resolved.duration_seconds
-                        probe_source = getattr(self.ffmpeg_pipeline, "probe_source", None)
-                        try:
-                            probe = probe_source(resolved.stream_url) if callable(probe_source) else None
-                            if probe is None:
-                                raise AttributeError("probe_source unavailable")
-                            probed_duration_seconds = (
-                                float(probe["duration_seconds"]) if probe["duration_seconds"] is not None else None
-                            )
-                        except FfmpegError:
-                            probed_duration_seconds = None
-                        except AttributeError:
-                            probed_duration_seconds = None
-                        self.repository.mark_item_resolved(queue_item.id, resolved.normalized_url)
-                        self._remember_recent_resolved_track(resolved)
-                        if resolved.thumbnail_url:
-                            self.state.now_playing_thumbnail_url = resolved.thumbnail_url
-                        if resolved.channel:
-                            self.state.now_playing_channel = resolved.channel
-                        self.state.now_playing_is_live = resolved.is_live
-                        seek_offset = self._consume_pending_seek_seconds(default=start_offset_seconds)
-                        self._set_playback_offset_seconds(seek_offset)
-                        start_offset_seconds = seek_offset
+                        result = self._attempt_runner.run(
+                            TrackAttemptRequest(
+                                queue_item=queue_item,
+                                attempt=attempt,
+                                default_seek_seconds=start_offset_seconds,
+                            ),
+                            self._attempt_hooks,
+                        )
+                        start_offset_seconds = result.seek_seconds
+                        total_chunks_sent += result.chunks_sent
+                        total_bytes_sent += result.bytes_sent
 
-                        spawn_for_source = getattr(self.ffmpeg_pipeline, "spawn_for_source", None)
-                        prefetched_audio_path = self._get_prefetched_audio_path(queue_item.id)
-                        if (
-                            callable(spawn_for_source)
-                            and not prefetched_audio_path
-                            and not resolved.is_live
-                            and not self._item_uses_direct_ffmpeg(queue_item)
-                        ):
-                            self._prefetch_audio_for_item(
-                                queue_item.id,
-                                queue_item.source_url,
-                                register_active=True,
-                            )
-                            if self._skip_event.is_set():
-                                raise InterruptedError(self._consume_interrupt_reason())
-                            prefetched_audio_path = self._get_prefetched_audio_path(queue_item.id)
-                        if callable(spawn_for_source) and prefetched_audio_path:
-                            source_process = None
-                            process = spawn_for_source(prefetched_audio_path, start_at_seconds=seek_offset)
-                            self._set_active_processes(process, None)
-                        elif callable(spawn_for_source) and (
-                            seek_offset > 0 or resolved.is_live or self._item_uses_direct_ffmpeg(queue_item)
-                        ):
-                            source_process = None
-                            process = spawn_for_source(resolved.stream_url, start_at_seconds=seek_offset)
-                            self._set_active_processes(process, None)
-                        else:
-                            raise FfmpegError("ffmpeg source playback is unavailable")
-
-                        # Trigger upcoming prefetch as soon as playback pipeline is ready.
-                        # Relying only on the first emitted chunk can miss/delay prefetch
-                        # for some direct/local playback paths.
-                        self._trigger_prefetch_upcoming_tracks()
-                        self._notify_state_changed()
-                        logger.info("Notifying state changed before first streamed chunk")
-
-                        attempt_chunks_sent = 0
-                        attempt_bytes_sent = 0
-                        attempt_started_at = time.monotonic()
-                        ffmpeg_stderr_snapshot = ""
-                        source_stderr_snapshot = ""
-                        while not self._stop_event.is_set():
-                            if self._skip_event.is_set():
-                                raise InterruptedError(self._consume_interrupt_reason())
-                            read_started = time.monotonic()
-                            chunk = self.ffmpeg_pipeline.read_chunk(process.stdout, self.chunk_size)
-                            read_seconds = time.monotonic() - read_started
-                            if chunk and read_seconds >= 0.3:
+                        if result.outcome is AttemptOutcome.completed:
+                            if completed_unusually_fast(result.elapsed_seconds, result.expected_seconds):
                                 logger.warning(
-                                    "Slow ffmpeg read while streaming track_id=%s attempt=%s chunk_index=%s "
-                                    "read_seconds=%.3f requested_bytes=%s received_bytes=%s",
+                                    "Track %s (%s) completed unusually fast (elapsed=%.2fs expected=%.0fs bytes=%s chunks=%s)",
                                     queue_item.id,
-                                    attempt,
-                                    attempt_chunks_sent,
-                                    read_seconds,
-                                    self.chunk_size,
-                                    len(chunk),
+                                    queue_item.title or queue_item.source_url,
+                                    result.elapsed_seconds,
+                                    result.expected_seconds,
+                                    result.bytes_sent,
+                                    result.chunks_sent,
                                 )
-                            if not chunk:
-                                ffmpeg_stderr_pipe = getattr(process, "stderr", None)
-                                ffmpeg_stderr_snapshot = (
-                                    ffmpeg_stderr_pipe.read().decode("utf-8", errors="replace").strip()
-                                    if ffmpeg_stderr_pipe is not None
-                                    else ""
+                            self.repository.mark_playback_finished(queue_item.id, status=QueueStatus.completed)
+                            if self.state.repeat_mode == RepeatMode.one:
+                                repeated = self.repository.enqueue_items(
+                                    [NewQueueItem(**new_item_fields(repeat_cycle_item_from(queue_item)))]
                                 )
-                                source_stderr_pipe = getattr(source_process, "stderr", None)
-                                source_stderr_snapshot = (
-                                    source_stderr_pipe.read().decode("utf-8", errors="replace").strip()
-                                    if source_stderr_pipe is not None
-                                    else ""
-                                )
-                                break
-                            if attempt_chunks_sent == 0:
-                                self._stop_transition_silence(transition_silence_stop, transition_silence_worker)
-                                transition_silence_stop = None
-                                transition_silence_worker = None
-                            self._write_stream(chunk)
-                            attempt_chunks_sent += 1
-                            if attempt_chunks_sent == 1:
-                                self._trigger_prefetch_upcoming_tracks()
-                            attempt_bytes_sent += len(chunk)
-                            total_chunks_sent += 1
-                            total_bytes_sent += len(chunk)
-
-                        if self._stop_event.is_set():
-                            raise InterruptedError("stop")
-                        if self._skip_event.is_set():
-                            raise InterruptedError(self._consume_interrupt_reason())
-
-                        return_code = self._process_return_code(process)
-                        source_return_code = self._process_return_code(source_process) if source_process is not None else 0
-                        elapsed_seconds = max(0.0, time.monotonic() - attempt_started_at)
-                        expected_duration = expected_duration_seconds(
-                            probed_duration_seconds,
-                            resolved_duration_seconds,
-                            queue_item.duration_seconds,
-                        )
-                        stderr_text = f"{ffmpeg_stderr_snapshot}\n{source_stderr_snapshot}".strip()
-                        verdict = classify_attempt(
-                            AttemptFacts(
-                                ffmpeg_return_code=return_code,
-                                source_return_code=source_return_code,
-                                elapsed_seconds=elapsed_seconds,
-                                expected_seconds=expected_duration,
-                                stderr_text=stderr_text,
-                            )
-                        )
-                        if verdict.outcome is AttemptOutcome.retry_ffmpeg:
-                            raise FfmpegError(verdict.reason or "ffmpeg failed")
-                        if verdict.outcome is AttemptOutcome.retry_source:
-                            raise YtDlpError(verdict.reason or "source failed")
-                        if verdict.outcome is AttemptOutcome.premature_end:
-                            raise YtDlpError(verdict.reason or "premature end")
-                        if completed_unusually_fast(elapsed_seconds, expected_duration):
-                            logger.warning(
-                                "Track %s (%s) completed unusually fast (elapsed=%.2fs duration=%ss bytes=%s chunks=%s)",
+                                if repeated:
+                                    self.repository.move_item_to_front(repeated[0].id)
+                            self._repeat_cycle_items.append(repeat_cycle_item_from(queue_item))
+                            self._record_track_outcome(completed=True)
+                            self._drop_prefetched_audio_path(queue_item.id)
+                            self._trigger_prefetch_upcoming_tracks()
+                            self._notify_state_changed()
+                            logger.info(
+                                "Track %s completed on attempt %s/%s (elapsed=%.2fs bytes=%s chunks=%s)",
                                 queue_item.id,
-                                queue_item.title or queue_item.source_url,
-                                elapsed_seconds,
-                                queue_item.duration_seconds,
-                                attempt_bytes_sent,
-                                attempt_chunks_sent,
+                                attempt,
+                                total_attempts,
+                                result.elapsed_seconds,
+                                result.bytes_sent,
+                                result.chunks_sent,
                             )
-                        self.repository.mark_playback_finished(queue_item.id, status=QueueStatus.completed)
-                        if self.state.repeat_mode == RepeatMode.one:
-                            repeated = self.repository.enqueue_items(
-                                [NewQueueItem(**new_item_fields(repeat_cycle_item_from(queue_item)))]
-                            )
-                            if repeated:
-                                self.repository.move_item_to_front(repeated[0].id)
-                        self._repeat_cycle_items.append(repeat_cycle_item_from(queue_item))
-                        self._record_track_outcome(completed=True)
-                        self._drop_prefetched_audio_path(queue_item.id)
-                        self._trigger_prefetch_upcoming_tracks()
-                        self._notify_state_changed()
-                        logger.info(
-                            "Track %s completed on attempt %s/%s (elapsed=%.2fs bytes=%s chunks=%s)",
-                            queue_item.id,
-                            attempt,
-                            total_attempts,
-                            elapsed_seconds,
-                            attempt_bytes_sent,
-                            attempt_chunks_sent,
-                        )
-                        return
-                    except InterruptedError:
-                        raise
-                    except (YtDlpError, FfmpegError) as exc:
+                            return
+
+                        failure_exc: Exception
+                        if result.outcome is AttemptOutcome.retry_ffmpeg:
+                            failure_exc = FfmpegError(result.reason or "ffmpeg failed")
+                        else:
+                            failure_exc = YtDlpError(result.reason or "playback failed")
                         if attempt >= total_attempts:
                             logger.error(
                                 "Track %s failed after %s/%s attempts (%s): %s",
                                 queue_item.id,
                                 attempt,
                                 total_attempts,
-                                type(exc).__name__,
-                                exc,
+                                type(failure_exc).__name__,
+                                failure_exc,
                             )
-                            raise
+                            raise failure_exc
                         self._drop_prefetched_audio_path(queue_item.id)
                         self._drop_cached_resolved_track(queue_item.id)
                         logger.warning(
@@ -1024,12 +978,11 @@ class StreamEngine:
                             attempt,
                             total_attempts,
                             queue_item.id,
-                            type(exc).__name__,
-                            exc,
+                            type(failure_exc).__name__,
+                            failure_exc,
                         )
-                        time.sleep(min(0.5, self.queue_poll_seconds))
+                        self._sleeper(min(0.5, self.queue_poll_seconds))
                     finally:
-                        self._stop_transition_silence(transition_silence_stop, transition_silence_worker)
                         self._terminate_active_process()
                         self._set_active_processes(None, None)
             except InterruptedError as exc:
@@ -1157,7 +1110,7 @@ class StreamEngine:
                 process = self.ffmpeg_pipeline.spawn_silence()
             except FfmpegError as exc:
                 logger.error("%s", exc)
-                time.sleep(min(0.1, self.queue_poll_seconds))
+                self._sleeper(min(0.1, self.queue_poll_seconds))
                 continue
             self._set_active_processes(process)
             try:

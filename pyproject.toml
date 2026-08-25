@@ -67,11 +67,15 @@ forbidden_modules = ["app.api", "app.db", "app.services", "app.usecases", "app.m
 # phase 3, when app/usecases/ is created (import-linter errors on missing
 # modules). tests/test_architecture.py already enforces the same rule.
 
-# NOTE: two contracts return as the migration lands:
-# - "Usecases depend only on domain" — phase 3 (app/usecases/ creation)
-# - "API layer does not reach into adapters' internals" — phase 4 (repository
-#   package split); today app.api imports NewQueueItem/NewPlaylistEntry from
-#   app.db.repository directly, which stays legal until then.
+[[tool.importlinter.contracts]]
+name = "Usecases depend only on domain"
+type = "forbidden"
+source_modules = ["app.usecases"]
+forbidden_modules = ["app.api", "app.db", "app.services", "app.main"]
+
+# NOTE: "API layer does not reach into adapters' internals" returns in phase 4
+# (repository package split); today app.api imports NewQueueItem/NewPlaylistEntry
+# from app.db.repository directly, which stays legal until then.
 # tests/test_architecture.py already enforces the domain/usecases rules.
 
 [tool.setuptools.packages.find]

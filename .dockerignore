@@ -58,3 +58,7 @@ Thumbs.db
 # Logs
 *.log
 logs/
+
+# Monorepo local artifacts
+apps/server/data/
+apps/server/bin/

@@ -4,17 +4,19 @@ import ui from "@nuxt/ui/vite";
 import Pages from "vite-plugin-pages";
 import { resolve } from "path";
 
-// Icons: bundled via addCollection() in frontend/src/main.js using @iconify-json/lucide.
+// Icons: bundled via addCollection() in src/main.js using @iconify-json/*.
 // See: https://github.com/nuxt/icon?tab=readme-ov-file#iconify-dataset
 
+const serverDist = resolve(__dirname, "../server/app/static/dist");
+
 export default defineConfig({
-  root: resolve(__dirname, "frontend"),
+  root: __dirname,
   plugins: [Pages({ dirs: "src/pages", extensions: ["vue"] }), vue(), ui()],
   build: {
-    outDir: resolve(__dirname, "app/static/dist"),
+    outDir: serverDist,
     emptyOutDir: true,
     rollupOptions: {
-      input: resolve(__dirname, "frontend/index.html"),
+      input: resolve(__dirname, "index.html"),
       output: {
         entryFileNames: "app.js",
         chunkFileNames: "chunks/[name].js",
@@ -23,8 +25,8 @@ export default defineConfig({
             return "app.css";
           }
           return "assets/[name][extname]";
-        }
-      }
-    }
-  }
+        },
+      },
+    },
+  },
 });

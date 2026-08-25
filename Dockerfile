@@ -19,21 +19,25 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 
 WORKDIR /build
 
-# Copy dependency files
-COPY pyproject.toml ./
+# Copy dependency files (workspace root + member manifests for npm ci)
+COPY apps/server/pyproject.toml ./apps/server/
 COPY package.json package-lock.json* ./
+COPY apps/web/package.json ./apps/web/
+COPY packages/shared/package.json ./packages/shared/
 
-# Install Python dependencies
+# Install Python dependencies (server)
+WORKDIR /build/apps/server
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
     && pip install --no-cache-dir ".[dev]"
 
-# Install frontend dependencies
+# Install frontend dependencies (workspace root)
+WORKDIR /build
 RUN npm ci
 
 # Copy application source
 COPY . .
 
-# Build frontend
+# Build frontend (workspace script targets apps/web; output goes to apps/server/app/static/dist)
 RUN npm run build
 
 # Download and install yt-dlp
@@ -111,15 +115,15 @@ RUN useradd -m -u 1000 airwave && \
 WORKDIR /app
 
 # Copy dependency file and app source (needed for package installation)
-COPY --chown=airwave:airwave pyproject.toml ./
-COPY --chown=airwave:airwave app/ ./app/
+COPY --chown=airwave:airwave apps/server/pyproject.toml ./pyproject.toml
+COPY --chown=airwave:airwave apps/server/app/ ./app/
 
 # Install Python packages (production only, no dev deps)
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
     && pip install --no-cache-dir .
 
 # Copy built frontend assets from builder (overwrites app/static/dist)
-COPY --chown=airwave:airwave --from=builder /build/app/static/dist ./app/static/dist
+COPY --chown=airwave:airwave --from=builder /build/apps/server/app/static/dist ./app/static/dist
 
 # Copy binaries from builder
 COPY --chown=airwave:airwave --from=builder /build/bin/yt-dlp ./bin/yt-dlp

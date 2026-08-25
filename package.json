@@ -1,25 +1,17 @@
 {
-  "name": "airwave-frontend",
+  "name": "airwave",
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "workspaces": [
+    "apps/web",
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "@iconify-json/bi": "^1.2.7",
-    "@nuxt/ui": "^4.3.0",
-    "hls.js": "^1.7.1",
-    "tailwindcss": "^4.2.1",
-    "vue": "^3.5.18",
-    "vue-draggable-plus": "^0.6.1",
-    "vue-router": "^4.6.4"
-  },
-  "devDependencies": {
-    "@vitejs/plugin-vue": "^5.1.4",
-    "vite": "^6.4.2",
-    "vite-plugin-pages": "^0.33.3"
+    "dev": "npm run dev -w apps/web",
+    "build": "npm run build -w apps/web",
+    "preview": "npm run preview -w apps/web",
+    "contracts:export": "python scripts/export_openapi.py",
+    "contracts:gen": "npm run contracts:export && npx openapi-typescript openapi.json -o packages/shared/src/generated/schema.d.ts"
   }
 }

@@ -7,6 +7,7 @@ import httpx
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 
 from app.api.common.dependencies import _services
+from app.api.common.models import PlaybackStateContract, UiSnapshotContract
 from app.api.common.serializers import _publish_ui_snapshot, _serialize_state, _stream_path
 from app.core.config import Settings
 from app.db.repository import NewPlaylistEntry
@@ -107,7 +108,7 @@ async def upgrade_app(request: Request, background_tasks: BackgroundTasks) -> di
     return {"ok": True, "status": "update_triggered"}
 
 
-@router.get("/state")
+@router.get("/state", response_model=PlaybackStateContract)
 def state(request: Request) -> dict[str, Any]:
     services = _services(request)
     engine: StreamEngine = services["engine"]
@@ -192,3 +193,17 @@ def unlike_current_song(request: Request) -> dict[str, Any]:
             engine.state_snapshot(), engine.playback_progress(), _stream_path(request), repo=repo
         ),
     }
+
+
+@router.get("/_contracts/snapshot", response_model=UiSnapshotContract, include_in_schema=True)
+def contracts_snapshot(request: Request) -> dict[str, Any]:
+    """Synthetic route exposing the WS snapshot payload shape in the OpenAPI
+    schema for codegen (openapi-typescript). Served data is real; the endpoint
+    is documented but not used by the UI."""
+    import time as _time
+
+    from app.api.common.serializers import build_ui_snapshot
+
+    snapshot = build_ui_snapshot(request.app)
+    snapshot.setdefault("timestamp", _time.time())
+    return snapshot

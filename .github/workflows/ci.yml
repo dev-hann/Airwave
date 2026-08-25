@@ -52,6 +52,13 @@ jobs:
           npm ci
           npm run build
 
+      - name: Contracts drift check (OpenAPI -> TS types)
+        run: |
+          python scripts/export_openapi.py
+          npx -y openapi-typescript@latest openapi.json -o packages/shared/src/generated/schema.d.ts
+          git diff --exit-code -- packages/shared/src/generated/schema.d.ts || {
+            echo "::error::Generated contract types are stale. Run: npm run contracts:gen"; exit 1; }
+
       - name: Publish test results
         uses: EnricoMi/publish-unit-test-result-action@v2
         if: always()

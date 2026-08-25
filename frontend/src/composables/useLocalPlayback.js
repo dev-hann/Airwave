@@ -10,16 +10,22 @@ const DEFAULT_LOCAL_VOLUME = 0.8;
 // Recovery tuning (radio-app conventions: unlimited retries, capped backoff).
 const REJOIN_BACKOFF_BASE_MS = 1000;
 const REJOIN_BACKOFF_MAX_MS = 8000;
-const STALL_WATCHDOG_INTERVAL_MS = 5000;
 const RECONCILE_SETTLE_MS = 250;
+// Official hls.js sample cooldown for recoverMediaError(): retrying media
+// error recovery more often loops instead of recovering.
+const MEDIA_ERROR_RECOVERY_COOLDOWN_MS = 5000;
 
-// HLS tuning: a deep forward buffer is what lets mobile/VPN listeners ride
-// out multi-second network stalls without an audible cut, and catch up on
-// missed segments afterwards instead of rejoining at the live edge.
+// HLS live tuning (hls.js docs: liveSyncDurationCount stays at the default 3;
+// liveMaxLatencyDurationCount must be strictly greater or playback stalls).
+// A deep forward buffer lets mobile/VPN listeners ride out multi-second
+// network stalls; latency control then catches up (1.5x) or seeks to the
+// live edge past the max-latency window instead of drifting behind forever.
 const HLS_MAX_BUFFER_SECONDS = 30;
 const HLS_MAX_MAX_BUFFER_SECONDS = 90;
-// Start listeners this many segments behind the live edge (4s segments).
+const HLS_BACK_BUFFER_SECONDS = 30;
 const HLS_LIVE_SYNC_SEGMENT_COUNT = 3;
+const HLS_LIVE_MAX_LATENCY_SEGMENT_COUNT = 12;
+const HLS_MAX_LIVE_SYNC_PLAYBACK_RATE = 1.5;
 
 function canPlayNativeHls(audio) {
   return Boolean(audio) && audio.canPlayType("application/vnd.apple.mpegurl") !== "";
@@ -52,10 +58,6 @@ function writeStoredLocalVolume(volume) {
   }
 }
 
-function isFirefox() {
-  return typeof navigator !== "undefined" && navigator.userAgent.includes("Firefox");
-}
-
 /**
  * Shared local playback over a single audio element. Call from the component that owns the element (e.g. App.vue).
  *
@@ -67,10 +69,11 @@ function isFirefox() {
  *   touch this browser. Server playback (play/pause/skip) is controlled
  *   separately and shared by all listeners.
  * - Engines with native HLS (iOS Safari) use the element directly; everyone
- *   else uses hls.js (MSE) with a deep forward buffer (~30s) so mobile/VPN
- *   listeners survive stalls and catch up instead of rejoining.
- * - The element stays connected (muted or not) and rejoins automatically on
- *   stalls, network errors, and background freezes (backoff 1s→8s, unlimited).
+ *   else uses hls.js (MSE), which owns stall detection, fragment retries,
+ *   gap/nudge recovery, and live-edge latency control. The app layer only
+ *   handles fatal errors (with the official recovery cooldown), autoplay
+ *   policy, and foreground reconciliation — never rejoin on transient
+ *   stalls, which would just destroy the buffer hls.js is defending.
  * @param {import('vue').Ref<HTMLAudioElement | null>} audioRef
  */
 export function useLocalPlayback(audioRef) {
@@ -87,10 +90,9 @@ export function useLocalPlayback(audioRef) {
   let sourceLoading = false;
   let rejoinAttempts = 0;
   let rejoinTimer = null;
-  let watchdogTimer = null;
-  let watchdogLastCurrentTime = -1;
   let detachGestureFallback = () => {};
   let hls = null; // hls.js instance; null on native-HLS engines (iOS Safari)
+  let attemptedMediaErrorRecoveryAt = 0;
 
   function destroyHls() {
     if (hls != null) {
@@ -128,16 +130,36 @@ export function useLocalPlayback(audioRef) {
     return Boolean(audioRef.value);
   }
 
-  function streamUrlWithCacheBust(url) {
-    // Firefox caches the downloaded live stream, which breaks rejoins.
-    // A fresh URL per start bypasses the stale cache/buffer (AzuraCast pattern).
-    if (!isFirefox()) return url;
-    const separator = url.includes("?") ? "&" : "?";
-    return `${url}${separator}refresh=${Date.now()}`;
+  /**
+   * Fatal hls.js error handling, following the official sample in the
+   * hls.js API docs: MEDIA_ERROR → recoverMediaError() with a 5s cooldown;
+   * anything else exhausted → backoff rejoin (never an immediate restart,
+   * which the docs warn causes loop loading).
+   */
+  function handleHlsFatalError(data) {
+    if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+      const now = Date.now();
+      if (
+        attemptedMediaErrorRecoveryAt === 0 ||
+        now - attemptedMediaErrorRecoveryAt > MEDIA_ERROR_RECOVERY_COOLDOWN_MS
+      ) {
+        attemptedMediaErrorRecoveryAt = now;
+        console.debug("[airwave] fatal media error; attempting recoverMediaError()");
+        try {
+          hls?.recoverMediaError();
+          return;
+        } catch {
+          // fall through to rejoin
+        }
+      } else {
+        console.debug("[airwave] skipping media error recovery (cooldown)");
+      }
+    }
+    scheduleRejoinWithBackoff();
   }
 
   /**
-   * (Re)join the live edge: reset src (never recreate the element — reusing it
+   * (Re)join the live stream: reset src (never recreate the element — reusing it
    * preserves the iOS audio session permission) and start playback. Preserves
    * the current mute state so an unmuted listener keeps hearing audio across
    * rejoins.
@@ -147,7 +169,11 @@ export function useLocalPlayback(audioRef) {
     const streamUrl = playbackState.value?.stream_url;
     if (!audio || !streamUrl || !shouldRecover()) return;
 
-    console.debug("[airwave] rejoin live stream", { reason, attempt: rejoinAttempts + 1, native: canPlayNativeHls(audio) });
+    console.debug("[airwave] rejoin live stream", {
+      reason,
+      attempt: rejoinAttempts + 1,
+      native: canPlayNativeHls(audio),
+    });
     sourceLoading = true;
     destroyHls();
     audio.removeAttribute("src");
@@ -156,27 +182,22 @@ export function useLocalPlayback(audioRef) {
     if (canPlayNativeHls(audio)) {
       // iOS Safari & friends play HLS natively; the element manages the
       // buffer and live-edge sync itself.
-      audio.src = streamUrlWithCacheBust(streamUrl);
+      audio.src = streamUrl;
     } else if (typeof window !== "undefined" && Hls.isSupported()) {
       hls = new Hls({
         maxBufferLength: HLS_MAX_BUFFER_SECONDS,
         maxMaxBufferLength: HLS_MAX_MAX_BUFFER_SECONDS,
+        backBufferLength: HLS_BACK_BUFFER_SECONDS,
         liveSyncDurationCount: HLS_LIVE_SYNC_SEGMENT_COUNT,
-        backBufferLength: 90,
+        liveMaxLatencyDurationCount: HLS_LIVE_MAX_LATENCY_SEGMENT_COUNT,
+        maxLiveSyncPlaybackRate: HLS_MAX_LIVE_SYNC_PLAYBACK_RATE,
+        liveDurationInfinity: true,
       });
       hls.attachMedia(audio);
       hls.loadSource(streamUrl);
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (!data?.fatal) return;
-        if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-          try {
-            hls?.recoverMediaError();
-            return;
-          } catch {
-            // fall through to rejoin
-          }
-        }
-        scheduleRejoinWithBackoff();
+        handleHlsFatalError(data);
       });
     } else {
       // Engine without MSE or native HLS — nothing this app can play on.
@@ -209,12 +230,17 @@ export function useLocalPlayback(audioRef) {
     syncLocalAudioPausedFromElement();
   }
 
-  function maybeRecover(reason) {
+  /** Foreground-visible only: resume playback if the element got paused
+   * (OS/backgrounding). Never triggered from inside a backgrounded tab, so it
+   * cannot churn while the browser throttles us. */
+  function maybeResumeOnForeground() {
     if (!shouldRecover()) return;
-    if (sourceLoading) return; // transient pause from our own src swap
-    if (rejoinTimer != null) return; // already scheduled
+    if (sourceLoading) return;
+    if (rejoinTimer != null) return;
+    const audio = audioRef.value;
+    if (!audio || (!audio.paused && !audio.ended)) return;
     rejoinAttempts = 0;
-    scheduleRejoin(reason === "stall" ? STALL_WATCHDOG_INTERVAL_MS : 0);
+    void rejoinLiveStream("foreground");
   }
 
   function syncLocalAudioPausedFromElement() {
@@ -269,23 +295,17 @@ export function useLocalPlayback(audioRef) {
   }
 
   function onAudioPause() {
-    // The element stopped without our src-swap being in flight (background tab,
-    // OS interruption, server pause) — recover to keep the live edge warm.
+    // The element stopped (background tab, OS interruption, server pause).
+    // State sync only: hls.js keeps its buffer and resumes when play() is
+    // granted again; a rejoin here would destroy the buffer for nothing.
     syncLocalAudioPausedFromElement();
-    if (!sourceLoading) maybeRecover("pause");
   }
 
   function onAudioError() {
-    const audio = audioRef.value;
-    const code = audio?.error?.code;
-    // MediaError.NETWORK_ERROR === 2 — the only recoverable class for a live stream.
-    if (code === 2 || code == null) {
-      rejoinAttempts = 0;
-      scheduleRejoinWithBackoff();
-    } else {
-      // Decode/src errors also recover via rejoin on a live stream (no seek possible).
-      scheduleRejoinWithBackoff();
-    }
+    // Only the native-HLS engine (no hls.js instance) surfaces playback
+    // errors through the element; on MSE engines hls.js owns error handling.
+    if (hls != null) return;
+    scheduleRejoinWithBackoff();
   }
 
   function onAudioPlaying() {
@@ -303,43 +323,14 @@ export function useLocalPlayback(audioRef) {
     sourceLoading = false;
   }
 
-  function onAudioTimeUpdate() {
-    const audio = audioRef.value;
-    if (audio) watchdogLastCurrentTime = audio.currentTime;
-  }
-
-  function onAudioStalledOrWaiting(eventName) {
-    // Fired even in throttled background tabs; immediate recovery trigger.
-    if (!sourceLoading && shouldRecover() && rejoinTimer == null) {
-      console.debug("[airwave] stall event", eventName);
-      rejoinAttempts = 0;
-      scheduleRejoin(STALL_WATCHDOG_INTERVAL_MS);
-    }
-  }
-
-  function runStallWatchdog() {
-    const audio = audioRef.value;
-    if (!audio || !shouldRecover()) return;
-    if (rejoinTimer != null) return;
-
-    const paused = audio.paused || audio.ended;
-    // A frozen currentTime while not paused is a stall at ANY readyState:
-    // after a chunk drop the decoder can sit at readyState >= 3 with the
-    // clock not advancing and no pause event — the stream is dead.
-    const timeFrozen = Math.abs(audio.currentTime - watchdogLastCurrentTime) < 0.05;
-    if (paused || timeFrozen) {
-      maybeRecover("stall");
-    }
-    watchdogLastCurrentTime = audio.currentTime;
-  }
-
   /** Reconcile after background freeze: trust the element state, recover if needed. */
   function onVisibleReconcile() {
-    if (document.visibilityState !== "visible") return;
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
     setTimeout(() => {
+      if (!shouldRecover()) return;
       const audio = audioRef.value;
-      if (!audio || !shouldRecover()) return;
-      if (audio.paused || audio.ended) maybeRecover("visible");
+      if (!audio) return;
+      if (audio.paused || audio.ended) maybeResumeOnForeground();
     }, RECONCILE_SETTLE_MS);
   }
 
@@ -392,9 +383,6 @@ export function useLocalPlayback(audioRef) {
       audio.addEventListener("error", onAudioError);
       audio.addEventListener("loadstart", onAudioLoadStart);
       audio.addEventListener("canplay", onAudioCanPlay);
-      audio.addEventListener("timeupdate", onAudioTimeUpdate);
-      audio.addEventListener("stalled", () => onAudioStalledOrWaiting("stalled"));
-      audio.addEventListener("waiting", () => onAudioStalledOrWaiting("waiting"));
       detachAudioStateListeners = () => {
         audio.removeEventListener("play", onAudioStateEvent);
         audio.removeEventListener("pause", onAudioPause);
@@ -403,7 +391,6 @@ export function useLocalPlayback(audioRef) {
         audio.removeEventListener("error", onAudioError);
         audio.removeEventListener("loadstart", onAudioLoadStart);
         audio.removeEventListener("canplay", onAudioCanPlay);
-        audio.removeEventListener("timeupdate", onAudioTimeUpdate);
       };
       // Element mounted before/after the stream URL arrived: cover both orders.
       if (playbackState.value?.stream_url) {
@@ -418,7 +405,6 @@ export function useLocalPlayback(audioRef) {
     document.addEventListener("visibilitychange", onVisibleReconcile);
     window.addEventListener("pageshow", onVisibleReconcile);
     document.addEventListener("resume", onVisibleReconcile);
-    watchdogTimer = setInterval(runStallWatchdog, STALL_WATCHDOG_INTERVAL_MS);
   }
 
   if (storedVolume == null) {
@@ -430,10 +416,6 @@ export function useLocalPlayback(audioRef) {
     detachGestureFallback();
     clearRejoinTimer();
     destroyHls();
-    if (watchdogTimer != null) {
-      clearInterval(watchdogTimer);
-      watchdogTimer = null;
-    }
     if (typeof window !== "undefined") {
       document.removeEventListener("visibilitychange", onVisibleReconcile);
       window.removeEventListener("pageshow", onVisibleReconcile);

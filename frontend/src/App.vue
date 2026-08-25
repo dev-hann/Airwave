@@ -102,8 +102,8 @@
       <DuplicateImportModal />
     </div>
 
-    <!-- Shared MP3 live-stream audio element (local browser playback) -->
-    <audio ref="localAudio" />
+    <!-- Shared MP3 live-stream audio element (local browser playback, muted-prestart) -->
+    <audio ref="localAudio" playsinline />
 
   </UApp>
 </template>
@@ -140,13 +140,6 @@ const { isMobile } = useBreakpoint();
 const localAudio = ref(null);
 
 const {
-  startLocalPlayback,
-  stopLocalPlayback,
-  pauseLocalPlayback,
-  resumeLocalPlayback,
-  localPlaybackStatus,
-  localPlaybackSessionDeps,
-  isLocalPlaybackActive,
   localVolume,
   isMuted,
   setLocalVolume,
@@ -154,25 +147,15 @@ const {
 } = useLocalPlayback(localAudio);
 
 provide("localPlayback", {
-  startLocalPlayback,
-  stopLocalPlayback,
-  pauseLocalPlayback,
-  resumeLocalPlayback,
-  localPlaybackStatus,
-  isLocalPlaybackActive,
   localVolume,
   isMuted,
   setLocalVolume,
   toggleMuted,
 });
 
-useMediaSession({
-  pauseLocalPlayback,
-  resumeLocalPlayback,
-  stopLocalPlayback,
-  localPlaybackStatus,
-  localPlaybackSessionDeps,
-});
+// OS media controls mirror the in-app transport: they control the shared
+// server stream. Local listening is only the mute/volume controls in the UI.
+useMediaSession();
 
 const {
   sidebarView,

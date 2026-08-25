@@ -47,8 +47,8 @@
         color="neutral"
         variant="ghost"
         class="player-bar-mobile-play shrink-0 min-h-[2.75rem] min-w-[2.75rem] flex items-center justify-center p-0"
-        :aria-label="playPauseAriaLabel"
-        @click.stop="onPlayPauseClick"
+        aria-label="Play / Pause"
+        @click.stop="togglePause"
       >
         <span class="flex items-center justify-center size-full">
           <UIcon :name="playPauseIcon" class="size-6 shrink-0" />
@@ -113,9 +113,9 @@
             color="neutral"
             variant="solid"
             :icon="playPauseIcon"
-            :aria-label="playPauseAriaLabel"
+            aria-label="Toggle play pause"
             class="rounded-full cursor-pointer"
-            @click="onPlayPauseClick"
+            @click="togglePause"
           />
           <UButton type="button" color="neutral" variant="ghost" icon="i-bi-skip-forward-fill" aria-label="Next" class="cursor-pointer" @click="skipCurrent" />
           <UButton
@@ -191,12 +191,10 @@ import { usePlaybackState } from "../composables/usePlaybackState";
 import { SIDEBAR_QUEUE_VIEW, useUiState } from "../composables/useUiState";
 
 const {
-  startLocalPlayback,
   localVolume,
   isMuted,
   setLocalVolume,
   toggleMuted,
-  isLocalPlaybackActive,
 } = inject("localPlayback");
 
 const router = useRouter();
@@ -213,22 +211,9 @@ const queueSidebarButtonActive = computed(() => {
   return sidebarView.value === SIDEBAR_QUEUE_VIEW;
 });
 
-/** Unconnected browser: the play button starts local playback (user gesture);
- *  connected: it toggles the shared server stream like before. */
-function onPlayPauseClick() {
-  if (!isLocalPlaybackActive.value) {
-    void startLocalPlayback();
-    return;
-  }
-  togglePause();
-}
-
-const playPauseIcon = computed(() => {
-  if (!isLocalPlaybackActive.value) return "i-bi-play-fill";
-  return playbackState.value.mode === "playing" && !playbackState.value.paused ? "i-bi-pause-fill" : "i-bi-play-fill";
-});
-
-const playPauseAriaLabel = computed(() => (isLocalPlaybackActive.value ? "Play / Pause" : "Start listening"));
+const playPauseIcon = computed(() =>
+  playbackState.value.mode === "playing" && !playbackState.value.paused ? "i-bi-pause-fill" : "i-bi-play-fill"
+);
 
 const repeatIcon = computed(() => (playbackState.value.repeat_mode === "one" ? "i-bi-repeat-1" : "i-bi-repeat"));
 const repeatLabel = computed(() => {

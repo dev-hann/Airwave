@@ -147,7 +147,6 @@ const {
   localPlaybackStatus,
   localPlaybackSessionDeps,
   isLocalPlaybackActive,
-  enableAutostartOnUserGesture,
   localVolume,
   isMuted,
   setLocalVolume,
@@ -189,7 +188,6 @@ initializeNotifications(useToast());
 onMounted(async () => {
   initializeTheme();
   initializeUiState(route);
-  enableAutostartOnUserGesture();
   await Promise.allSettled([initializeLibraryState(), initializePlaybackState()]);
 });
 </script>

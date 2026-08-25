@@ -148,8 +148,8 @@
             variant="solid"
             size="xl"
             class="fullscreen-player-play-button min-h-[4.5rem] min-w-[4.5rem] flex items-center justify-center rounded-full p-0"
-            aria-label="Play / Pause"
-            @click="togglePause"
+            :aria-label="playPauseAriaLabel"
+            @click="onPlayPauseClick"
           >
             <span class="flex size-full items-center justify-center">
               <UIcon :name="playPauseIcon" class="size-8 shrink-0" />
@@ -175,34 +175,6 @@
           />
         </div>
         <div class="fullscreen-player-local-controls mt-3 flex flex-wrap items-center justify-center gap-2">
-          <a
-            class="text-xs font-medium text-emerald-400 hover:text-emerald-300"
-            :href="playbackState.stream_url"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Stream
-          </a>
-          <UButton
-            type="button"
-            color="primary"
-            variant="soft"
-            size="xs"
-            :disabled="isLocalPlaybackActive"
-            @click="startLocalPlayback"
-          >
-            Connect
-          </UButton>
-          <UButton
-            type="button"
-            color="neutral"
-            variant="outline"
-            size="xs"
-            :disabled="!isLocalPlaybackActive"
-            @click="stopLocalPlayback"
-          >
-            Disconnect
-          </UButton>
           <div class="mt-1 flex w-full max-w-xs items-center gap-2 px-2">
             <UButton
               type="button"
@@ -238,7 +210,6 @@ import { usePlaybackState } from "../composables/usePlaybackState";
 
 const {
   startLocalPlayback,
-  stopLocalPlayback,
   isLocalPlaybackActive,
   localVolume,
   isMuted,
@@ -256,9 +227,22 @@ const bgStyle = computed(() => {
   return { backgroundImage: `url(${url})` };
 });
 
-const playPauseIcon = computed(() =>
-  playbackState.value.mode === "playing" && !playbackState.value.paused ? "i-bi-pause-fill" : "i-bi-play-fill"
-);
+/** Unconnected browser: the play button starts local playback (user gesture);
+ *  connected: it toggles the shared server stream like before. */
+function onPlayPauseClick() {
+  if (!isLocalPlaybackActive.value) {
+    void startLocalPlayback();
+    return;
+  }
+  togglePause();
+}
+
+const playPauseIcon = computed(() => {
+  if (!isLocalPlaybackActive.value) return "i-bi-play-fill";
+  return playbackState.value.mode === "playing" && !playbackState.value.paused ? "i-bi-pause-fill" : "i-bi-play-fill";
+});
+
+const playPauseAriaLabel = computed(() => (isLocalPlaybackActive.value ? "Play / Pause" : "Start listening"));
 const repeatIcon = computed(() => (playbackState.value.repeat_mode === "one" ? "i-bi-repeat-1" : "i-bi-repeat"));
 const repeatLabel = computed(() => {
   if (playbackState.value.repeat_mode === "all") return "Repeat all";

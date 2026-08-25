@@ -47,8 +47,8 @@
         color="neutral"
         variant="ghost"
         class="player-bar-mobile-play shrink-0 min-h-[2.75rem] min-w-[2.75rem] flex items-center justify-center p-0"
-        aria-label="Play / Pause"
-        @click.stop="togglePause"
+        :aria-label="playPauseAriaLabel"
+        @click.stop="onPlayPauseClick"
       >
         <span class="flex items-center justify-center size-full">
           <UIcon :name="playPauseIcon" class="size-6 shrink-0" />
@@ -113,9 +113,9 @@
             color="neutral"
             variant="solid"
             :icon="playPauseIcon"
-            aria-label="Toggle play pause"
+            :aria-label="playPauseAriaLabel"
             class="rounded-full cursor-pointer"
-            @click="togglePause"
+            @click="onPlayPauseClick"
           />
           <UButton type="button" color="neutral" variant="ghost" icon="i-bi-skip-forward-fill" aria-label="Next" class="cursor-pointer" @click="skipCurrent" />
           <UButton
@@ -152,36 +152,6 @@
               @click="toggleRightSidebar(SIDEBAR_QUEUE_VIEW)"
             />
           </div>
-        <a
-          class="mr-1 text-xs font-medium text-emerald-400 hover:text-emerald-300"
-          :href="playbackState.stream_url"
-          target="_blank"
-          rel="noreferrer"
-        >
-          Stream
-        </a>
-        <UButton
-          type="button"
-          color="primary"
-          variant="soft"
-          size="xs"
-          :disabled="isLocalPlaybackActive"
-          class="cursor-pointer"
-          @click="startLocalPlayback"
-        >
-          Connect
-        </UButton>
-        <UButton
-          type="button"
-          color="neutral"
-          variant="outline"
-          size="xs"
-          :disabled="!isLocalPlaybackActive"
-          class="cursor-pointer"
-          @click="stopLocalPlayback"
-        >
-          Disconnect
-        </UButton>
         <div class="ml-1 flex w-[220px] items-center gap-2">
           <UButton
             type="button"
@@ -222,13 +192,12 @@ import { SIDEBAR_QUEUE_VIEW, useUiState } from "../composables/useUiState";
 
 const {
   startLocalPlayback,
-  stopLocalPlayback,
   localVolume,
   isMuted,
   setLocalVolume,
   toggleMuted,
   isLocalPlaybackActive,
-} = inject("localPlayback"); 
+} = inject("localPlayback");
 
 const router = useRouter();
 const { playbackState } = usePlaybackState();
@@ -244,9 +213,22 @@ const queueSidebarButtonActive = computed(() => {
   return sidebarView.value === SIDEBAR_QUEUE_VIEW;
 });
 
-const playPauseIcon = computed(() =>
-  playbackState.value.mode === "playing" && !playbackState.value.paused ? "i-bi-pause-fill" : "i-bi-play-fill"
-);
+/** Unconnected browser: the play button starts local playback (user gesture);
+ *  connected: it toggles the shared server stream like before. */
+function onPlayPauseClick() {
+  if (!isLocalPlaybackActive.value) {
+    void startLocalPlayback();
+    return;
+  }
+  togglePause();
+}
+
+const playPauseIcon = computed(() => {
+  if (!isLocalPlaybackActive.value) return "i-bi-play-fill";
+  return playbackState.value.mode === "playing" && !playbackState.value.paused ? "i-bi-pause-fill" : "i-bi-play-fill";
+});
+
+const playPauseAriaLabel = computed(() => (isLocalPlaybackActive.value ? "Play / Pause" : "Start listening"));
 
 const repeatIcon = computed(() => (playbackState.value.repeat_mode === "one" ? "i-bi-repeat-1" : "i-bi-repeat"));
 const repeatLabel = computed(() => {

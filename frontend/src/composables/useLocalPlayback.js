@@ -10,7 +10,6 @@ const REJOIN_BACKOFF_BASE_MS = 1000;
 const REJOIN_BACKOFF_MAX_MS = 8000;
 const STALL_WATCHDOG_INTERVAL_MS = 5000;
 const RECONCILE_SETTLE_MS = 250;
-const NOT_ALLOWED_MAX_RETRIES = 5;
 
 function clampVolume(value) {
   if (!Number.isFinite(value)) return DEFAULT_LOCAL_VOLUME;
@@ -47,11 +46,13 @@ function isFirefox() {
  * Shared local playback over a single audio element. Call from the component that owns the element (e.g. App.vue).
  *
  * Recovery model (mobile radio semantics):
- * - `wantsLocalPlayback` = user-level connect intent (Connect button / gesture autostart)
- * - `userPaused` = user explicitly paused (Disconnect or pause control) — the ONLY state we stay stopped in
+ * - `wantsLocalPlayback` = user-level connect intent (Play button on an unconnected browser)
+ * - `userPaused` = user explicitly paused — the ONLY state we stay stopped in
  * - everything else (OS background pause, stall, network error, tab freeze) is recovered from
  *   automatically by rejoining the live edge: src reset (+ Firefox cache-bust) + play().
  * - Retries: exponential backoff 1s→8s, unlimited, reset once 'playing' fires.
+ * - Playback is only ever started from a user gesture (Play button click): browsers block
+ *   audible autoplay otherwise, so there is no gesture-autostart hook anymore.
  * @param {import('vue').Ref<HTMLAudioElement | null>} audioRef
  */
 export function useLocalPlayback(audioRef) {
@@ -68,7 +69,6 @@ export function useLocalPlayback(audioRef) {
   let userPaused = false;
   let sourceLoading = false;
   let rejoinAttempts = 0;
-  let notAllowedRetries = 0;
   let rejoinTimer = null;
   let watchdogTimer = null;
   let watchdogLastCurrentTime = -1;
@@ -127,14 +127,11 @@ export function useLocalPlayback(audioRef) {
     } catch (error) {
       // Classify the rejection instead of treating every failure as user stop.
       if (error?.name === "NotAllowedError") {
-        // Autoplay policy: retry in the background (bounded) — mobile browsers
-        // sometimes refuse a play() right after returning to the foreground.
+        // Autoplay policy: audible playback needs a user gesture. All start
+        // paths are button-driven now, so this is not retried in the
+        // background — the next Play press starts playback.
         sourceLoading = false;
         syncLocalAudioPausedFromElement();
-        if (notAllowedRetries < NOT_ALLOWED_MAX_RETRIES) {
-          notAllowedRetries += 1;
-          scheduleRejoin(REJOIN_BACKOFF_BASE_MS * notAllowedRetries);
-        }
         return;
       }
       if (error?.name !== "AbortError") {
@@ -229,8 +226,7 @@ export function useLocalPlayback(audioRef) {
       await audioRef.value.play();
     } catch (error) {
       if (error?.name === "NotAllowedError") {
-        // No user gesture yet — keep connect intent; gesture autostart or the
-        // Connect button will retry. Do not flip to "stopped".
+        // No user gesture — impossible for button-driven starts; stay paused.
         sourceLoading = false;
         syncLocalAudioPausedFromElement();
         return;
@@ -296,19 +292,6 @@ export function useLocalPlayback(audioRef) {
    * Start playback automatically on the first user gesture anywhere in the app
    * (autoplay policy requires a gesture for audible playback).
    */
-  function enableAutostartOnUserGesture() {
-    if (typeof window === "undefined") return;
-    const events = ["pointerdown", "keydown", "touchstart"];
-    const onFirstGesture = () => {
-      if (wantsLocalPlayback.value || !playbackState.value?.stream_url) return;
-      void startLocalPlayback();
-      if (wantsLocalPlayback.value) {
-        for (const name of events) window.removeEventListener(name, onFirstGesture, true);
-      }
-    };
-    for (const name of events) window.addEventListener(name, onFirstGesture, { capture: true });
-  }
-
   function onAudioPause() {
     // A pause we did not request via userPaused/src-swap means the OS or the
     // element stopped us (background tab, interruption) — recover.
@@ -333,7 +316,6 @@ export function useLocalPlayback(audioRef) {
 
   function onAudioPlaying() {
     rejoinAttempts = 0;
-    notAllowedRetries = 0;
     clearRejoinTimer();
     syncLocalAudioPausedFromElement();
   }
@@ -472,7 +454,6 @@ export function useLocalPlayback(audioRef) {
     localPlaybackStatus,
     localPlaybackSessionDeps,
     isLocalPlaybackActive,
-    enableAutostartOnUserGesture,
     localVolume,
     isMuted,
     setLocalVolume,

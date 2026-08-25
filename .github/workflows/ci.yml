@@ -58,7 +58,8 @@ jobs:
     if: github.event_name == 'push' && (github.ref_type == 'branch' || github.ref_type == 'tag')
     permissions:
       contents: read
-      packages: write    steps:
+      packages: write
+    steps:
       - name: Checkout
         uses: actions/checkout@v4
     

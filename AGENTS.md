@@ -33,12 +33,12 @@ This is a maintained fork (`dev-hann/Airwave`); upstream is inactive. See `docs/
 ## Repository map (condensed)
 
 - `app/main.py` — composition root: service wiring, lifespan
-- `app/api/` — 19 domain sub-routers mounted by `app/api/routes.py` (45-line aggregator); shared models/serializers in `app/api/common/`
-- `app/domain/`, `app/usecases/` — pure playback rules + play-track orchestration (see `docs/backend/clean-architecture.md`; lint-enforced isolation)
-- `app/services/` — business logic (StreamEngine session/retry, HlsSegmenter, PlaylistService, YtDlpService, FfmpegPipeline, BinariesService, …)
-- `app/db/` — SQLAlchemy models + `repository/` package (facade + store mixins; manual migrations)
-- `app/core/config.py` — `AIRWAVE_*` settings
-- `frontend/src/` — Vue app; builds to `app/static/dist` (served by FastAPI)
+- `apps/server/app/api/` — 19 domain sub-routers mounted by `app/api/routes.py` (45-line aggregator); shared models/serializers in `app/api/common/`
+- `apps/server/app/domain/`, `apps/server/app/usecases/` — pure playback rules + play-track orchestration (see `docs/backend/clean-architecture.md`; lint-enforced isolation)
+- `apps/server/app/services/` — business logic (StreamEngine session/retry, HlsSegmenter, PlaylistService, YtDlpService, FfmpegPipeline, BinariesService, …)
+- `apps/server/app/db/` — SQLAlchemy models + `repository/` package (facade + store mixins; manual migrations)
+- `apps/server/app/core/config.py` — `AIRWAVE_*` settings
+- `apps/web/` — Vue app (`@airwave/web`); builds to `apps/server/app/static/dist` (served by FastAPI). `packages/shared/` (`@airwave/shared`) holds enums + OpenAPI-generated TS contract types (`npm run contracts:gen` to refresh; CI fails on drift)
 - `tests/` — pytest, 270 tests (incl. architecture/port enforcement). `tests_e2e/` does **not** exist.
 
 ## Hard rules
@@ -49,8 +49,8 @@ This is a maintained fork (`dev-hann/Airwave`); upstream is inactive. See `docs/
 4. Shared services come from `request.app.state` (via `_services(request)`). No ad-hoc globals.
 5. Keep API payload shapes stable; contract changes update backend + frontend in one commit.
 6. Env-driven behavior goes through `app/core/config.py` (`AIRWAVE_*`), not hardcoded values.
-7. New DB columns follow the existing `_ensure_*_column` migration pattern in `app/db/repository/migrations.py` (no Alembic, no third migration path).
-8. Vue changes require `npm run build` before finishing (CI does not build the frontend).
+7. New DB columns follow the existing `_ensure_*_column` migration pattern in `apps/server/app/db/repository/migrations.py` (no Alembic, no third migration path).
+8. Vue changes require `npm run build` before finishing (CI builds the frontend and diff-checks generated contract types).
 9. Client disconnects/shutdown in streaming code are normal cases — handle gracefully, don't log-spam.
 10. Match existing style in touched files; no unrelated refactors.
 
@@ -68,14 +68,16 @@ This is a maintained fork (`dev-hann/Airwave`); upstream is inactive. See `docs/
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e ".[dev]"     # MUST be editable; non-editable breaks static tests
-npm install
+cd apps/server && python -m pip install -e ".[dev]"   # MUST be editable; non-editable breaks static tests
+cd ../.. && npm install               # workspace root installs apps/web + packages/shared
 ./scripts/setup_binaries.sh           # optional: local bare-metal dev only (Docker bakes binaries in)
 ./scripts/run_dev.sh                  # dev launcher (builds frontend if missing)
+python scripts/export_openapi.py      # OpenAPI dump for TS codegen
 ```
 
-- Backend tests: `python -m pytest` (venv python only — assume no global pytest)
-- Frontend build check: `npm run build`
+- Backend tests: `cd apps/server && python -m pytest` (repo-root venv)
+- Frontend build check: `npm run build` (workspace root)
+- Contract types: `npm run contracts:gen` after changing response models
 - Smoke: `uvicorn app.main:create_app --factory` then open `/` (UI) and `/docs` (OpenAPI)
 
 ## Before finishing

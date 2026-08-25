@@ -4,9 +4,10 @@ Read this before touching frontend structure, state, or the build.
 
 ## Layout
 
-- Source: `frontend/src/` (~8,700 lines, 53 files). Vite root is `frontend/`; build config lives in the repo-root `vite.config.js`.
-- Build output goes to `app/static/dist/` (entry files forced to `app.js` / `app.css`). FastAPI serves that directory — **the served app is the build output, not `frontend/src`**.
-- After changing any Vue file, composable, or router behavior: run `npm run build` so `app/static/dist` stays in sync. CI does not build the frontend (known gap) — the sync duty is yours.
+- Source: `apps/web/src/` (~8,700 lines). npm-workspace member `@airwave/web`; vite config sits at `apps/web/vite.config.js`. The repo is an npm-workspaces monorepo (`apps/*`, `packages/*`).
+- Build output goes to `apps/server/app/static/dist/` (entry files forced to `app.js` / `app.css`). FastAPI serves that directory — **the served app is the build output, not `apps/web/src`**.
+- After changing any Vue file, composable, or router behavior: run `npm run build` (from the workspace root) so the dist stays in sync. CI also builds the frontend.
+- Shared code: import constants from `@airwave/shared` (`packages/shared`); wire-payload types come from its OpenAPI-generated `schema.d.ts` — regenerate with `npm run contracts:gen` after backend response-model changes (CI fails on drift).
 
 ## State management
 

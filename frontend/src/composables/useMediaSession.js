@@ -1,4 +1,4 @@
-import { nextTick, watch } from "vue";
+import { watch } from "vue";
 
 import { useLibraryState } from "./useLibraryState";
 import { usePlaybackState } from "./usePlaybackState";
@@ -17,13 +17,15 @@ function buildArtwork(thumbnailUrl) {
   }));
 }
 
-export function useMediaSession(localPlayback) {
+/**
+ * OS media controls (lock screen / notification) mirror the in-app transport:
+ * play/pause/stop toggle the shared SERVER stream; per-browser listening is
+ * controlled separately via the local mute/volume UI.
+ */
+export function useMediaSession() {
   if (typeof navigator === "undefined" || !("mediaSession" in navigator)) {
     return;
   }
-
-  const { pauseLocalPlayback, resumeLocalPlayback, stopLocalPlayback, localPlaybackStatus, localPlaybackSessionDeps } =
-    localPlayback ?? {};
 
   const { playbackState } = usePlaybackState();
   const { skipCurrent, previousTrack, seekToPercent, togglePause } = useLibraryState();
@@ -58,38 +60,13 @@ export function useMediaSession(localPlayback) {
       artwork: buildArtwork(state?.now_playing_thumbnail_url),
     });
 
-    let isPlaying = state?.mode === "playing" && !state?.paused;
-    if (localPlaybackStatus) {
-      const local = localPlaybackStatus();
-      if (local.isLocalPlaybackActive) {
-        // Intent-driven: hold "playing" through transient recovery pauses
-        // (background stall, rejoin) so the OS notification doesn't flicker.
-        isPlaying = Boolean(local.isLocalPlaybackIntended ?? !local.isLocalPlaybackPaused);
-      } else {
-        isPlaying = false;
-      }
-    }
+    const isPlaying = state?.mode === "playing" && !state?.paused;
     navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
     updatePositionState();
   }
 
-  navigator.mediaSession.setActionHandler("play", () => {
-    if (localPlaybackStatus?.()?.isLocalPlaybackActive) {
-      void Promise.resolve(resumeLocalPlayback?.()).finally(() => {
-        nextTick(updateMetadata);
-      });
-    } else {
-      togglePause();
-    }
-  });
-  navigator.mediaSession.setActionHandler("pause", () => {
-    if (localPlaybackStatus?.()?.isLocalPlaybackActive) {
-      pauseLocalPlayback?.();
-      nextTick(updateMetadata);
-    } else {
-      togglePause();
-    }
-  });
+  navigator.mediaSession.setActionHandler("play", togglePause);
+  navigator.mediaSession.setActionHandler("pause", togglePause);
   navigator.mediaSession.setActionHandler("previoustrack", () => previousTrack());
   navigator.mediaSession.setActionHandler("nexttrack", () => skipCurrent());
 
@@ -130,18 +107,10 @@ export function useMediaSession(localPlayback) {
   }
 
   try {
-    navigator.mediaSession.setActionHandler("stop", () => {
-      if (localPlaybackStatus?.()?.isLocalPlaybackActive) {
-        stopLocalPlayback?.();
-        nextTick(updateMetadata);
-      } else {
-        togglePause();
-      }
-    });
+    navigator.mediaSession.setActionHandler("stop", togglePause);
   } catch {
     // stop is not supported (e.g. Chrome < 77)
   }
 
-  const mediaSessionWatchSources = localPlaybackSessionDeps ? [playbackState, localPlaybackSessionDeps] : [playbackState];
-  watch(mediaSessionWatchSources, updateMetadata, { immediate: true, deep: true });
+  watch(playbackState, updateMetadata, { immediate: true, deep: true });
 }

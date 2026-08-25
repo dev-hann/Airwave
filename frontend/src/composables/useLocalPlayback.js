@@ -1,4 +1,4 @@
-import { computed, onUnmounted, ref, watch } from "vue";
+import { onUnmounted, ref, watch } from "vue";
 
 import { usePlaybackState } from "./usePlaybackState";
 
@@ -45,33 +45,34 @@ function isFirefox() {
 /**
  * Shared local playback over a single audio element. Call from the component that owns the element (e.g. App.vue).
  *
- * Recovery model (mobile radio semantics):
- * - `wantsLocalPlayback` = user-level connect intent (Play button on an unconnected browser)
- * - `userPaused` = user explicitly paused — the ONLY state we stay stopped in
- * - everything else (OS background pause, stall, network error, tab freeze) is recovered from
- *   automatically by rejoining the live edge: src reset (+ Firefox cache-bust) + play().
- * - Retries: exponential backoff 1s→8s, unlimited, reset once 'playing' fires.
- * - Playback is only ever started from a user gesture (Play button click): browsers block
- *   audible autoplay otherwise, so there is no gesture-autostart hook anymore.
+ * Muted-prestart model:
+ * - The audio element connects and plays MUTED as soon as the stream URL is
+ *   known. Muted playback needs no user gesture, so every visitor arrives
+ *   already buffering at the live edge; unmuting is instant.
+ * - Listening on/off is purely local: the mute button and volume slider only
+ *   touch this browser. Server playback (play/pause/skip) is controlled
+ *   separately and shared by all listeners.
+ * - The element stays connected (muted or not) and rejoins automatically on
+ *   stalls, network errors, and background freezes (backoff 1s→8s, unlimited).
  * @param {import('vue').Ref<HTMLAudioElement | null>} audioRef
  */
 export function useLocalPlayback(audioRef) {
   const { playbackState } = usePlaybackState();
-  const wantsLocalPlayback = ref(false);
   /** Mirrors the audio element's paused/ended state so Vue updates when OS / Media Session controls the element. */
   const localAudioPaused = ref(true);
   const storedVolume = readStoredLocalVolume();
   const localVolume = ref(storedVolume ?? DEFAULT_LOCAL_VOLUME);
-  const isMuted = ref(localVolume.value <= 0);
+  // Always start muted: audible autoplay is blocked without a gesture, muted is not.
+  const isMuted = ref(true);
   const previousVolumeBeforeMute = ref(localVolume.value > 0 ? localVolume.value : DEFAULT_LOCAL_VOLUME);
 
   // --- recovery state ---
-  let userPaused = false;
   let sourceLoading = false;
   let rejoinAttempts = 0;
   let rejoinTimer = null;
   let watchdogTimer = null;
   let watchdogLastCurrentTime = -1;
+  let detachGestureFallback = () => {};
 
   function clearRejoinTimer() {
     if (rejoinTimer != null) {
@@ -95,7 +96,7 @@ export function useLocalPlayback(audioRef) {
   }
 
   function shouldRecover() {
-    return Boolean(audioRef.value && wantsLocalPlayback.value && !userPaused);
+    return Boolean(audioRef.value);
   }
 
   function streamUrlWithCacheBust(url) {
@@ -107,8 +108,10 @@ export function useLocalPlayback(audioRef) {
   }
 
   /**
-   * Rejoin the live edge: reset src (never recreate the element — reusing it
-   * preserves the iOS audio session permission) and start playback.
+   * (Re)join the live edge: reset src (never recreate the element — reusing it
+   * preserves the iOS audio session permission) and start playback. Preserves
+   * the current mute state so an unmuted listener keeps hearing audio across
+   * rejoins.
    */
   async function rejoinLiveStream(reason = "rejoin") {
     const audio = audioRef.value;
@@ -125,12 +128,11 @@ export function useLocalPlayback(audioRef) {
     try {
       await audio.play();
     } catch (error) {
-      // Classify the rejection instead of treating every failure as user stop.
       if (error?.name === "NotAllowedError") {
-        // Autoplay policy: audible playback needs a user gesture. All start
-        // paths are button-driven now, so this is not retried in the
-        // background — the next Play press starts playback.
+        // Audible rejoin without a gesture (background recovery while unmuted).
+        // Retry with backoff — browsers grant play() again after any interaction.
         sourceLoading = false;
+        scheduleRejoinWithBackoff();
         syncLocalAudioPausedFromElement();
         return;
       }
@@ -164,16 +166,6 @@ export function useLocalPlayback(audioRef) {
     localAudioPaused.value = audio.paused || audio.ended;
   }
 
-  const isLocalPlaybackActive = computed(() => {
-    const local = localPlaybackStatus();
-    return local.isLocalPlaybackActive && !local.isLocalPlaybackPaused;
-  });
-
-  const localPlaybackSessionDeps = computed(() => ({
-    wantsLocal: wantsLocalPlayback.value,
-    audioPaused: localAudioPaused.value,
-  }));
-
   function applyAudioVolume() {
     if (!audioRef.value) return;
     audioRef.value.volume = clampVolume(localVolume.value);
@@ -194,12 +186,18 @@ export function useLocalPlayback(audioRef) {
   }
 
   function toggleMuted() {
+    const audio = audioRef.value;
     if (isMuted.value || localVolume.value <= 0) {
       const restoredVolume = previousVolumeBeforeMute.value > 0 ? previousVolumeBeforeMute.value : DEFAULT_LOCAL_VOLUME;
       localVolume.value = clampVolume(restoredVolume);
       isMuted.value = false;
       applyAudioVolume();
       writeStoredLocalVolume(localVolume.value);
+      // Unmuting is a user gesture: if the element stalled or was interrupted,
+      // restart it now so sound is immediate.
+      if (audio && (audio.paused || audio.ended) && rejoinTimer == null) {
+        void rejoinLiveStream("unmute");
+      }
       return;
     }
 
@@ -210,93 +208,11 @@ export function useLocalPlayback(audioRef) {
     writeStoredLocalVolume(0);
   }
 
-  async function startLocalPlayback() {
-    if (!audioRef.value || !playbackState.value.stream_url) return;
-
-    wantsLocalPlayback.value = true;
-    userPaused = false;
-    rejoinAttempts = 0;
-    clearRejoinTimer();
-
-    sourceLoading = true;
-    audioRef.value.src = streamUrlWithCacheBust(playbackState.value.stream_url);
-    applyAudioVolume();
-
-    try {
-      await audioRef.value.play();
-    } catch (error) {
-      if (error?.name === "NotAllowedError") {
-        // No user gesture — impossible for button-driven starts; stay paused.
-        sourceLoading = false;
-        syncLocalAudioPausedFromElement();
-        return;
-      }
-      if (error?.name !== "AbortError") {
-        sourceLoading = false;
-        scheduleRejoinWithBackoff();
-        syncLocalAudioPausedFromElement();
-        return;
-      }
-    }
-    sourceLoading = false;
-    syncLocalAudioPausedFromElement();
-  }
-
-  function stopLocalPlayback() {
-    clearRejoinTimer();
-    wantsLocalPlayback.value = false;
-    userPaused = true;
-
-    const audio = audioRef.value;
-    if (!audio) return;
-    audio.pause();
-    audio.removeAttribute("src");
-    audio.load();
-    syncLocalAudioPausedFromElement();
-  }
-
-  function pauseLocalPlayback() {
-    if (!wantsLocalPlayback.value || !audioRef.value) return;
-    userPaused = true;
-    clearRejoinTimer();
-    audioRef.value.pause();
-    syncLocalAudioPausedFromElement();
-  }
-
-  function localPlaybackStatus() {
-    const audio = audioRef.value;
-    const active = wantsLocalPlayback.value;
-    const paused = !audio || localAudioPaused.value;
-    const playing = Boolean(audio && active && !paused);
-    return {
-      isLocalPlaybackActive: active,
-      isLocalPlaybackPaused: paused,
-      isLocalPlaybackPlaying: playing,
-      // Intent view: connected AND not user-paused. Stays true through transient
-      // recovery pauses so the Media Session notification keeps "playing".
-      isLocalPlaybackIntended: active && !userPaused,
-      isLocalPlaybackStopped: !active || !audio?.src,
-    };
-  }
-
-  async function resumeLocalPlayback() {
-    if (!wantsLocalPlayback.value || !audioRef.value || !playbackState.value.stream_url) return;
-
-    userPaused = false;
-    rejoinAttempts = 0;
-    clearRejoinTimer();
-    await rejoinLiveStream();
-  }
-
-  /**
-   * Start playback automatically on the first user gesture anywhere in the app
-   * (autoplay policy requires a gesture for audible playback).
-   */
   function onAudioPause() {
-    // A pause we did not request via userPaused/src-swap means the OS or the
-    // element stopped us (background tab, interruption) — recover.
+    // The element stopped without our src-swap being in flight (background tab,
+    // OS interruption, server pause) — recover to keep the live edge warm.
     syncLocalAudioPausedFromElement();
-    if (!userPaused && !sourceLoading) maybeRecover("pause");
+    if (!sourceLoading) maybeRecover("pause");
   }
 
   function onAudioError() {
@@ -304,19 +220,18 @@ export function useLocalPlayback(audioRef) {
     const code = audio?.error?.code;
     // MediaError.NETWORK_ERROR === 2 — the only recoverable class for a live stream.
     if (code === 2 || code == null) {
-      if (!userPaused) {
-        rejoinAttempts = 0;
-        scheduleRejoinWithBackoff();
-      }
+      rejoinAttempts = 0;
+      scheduleRejoinWithBackoff();
     } else {
       // Decode/src errors also recover via rejoin on a live stream (no seek possible).
-      if (!userPaused) scheduleRejoinWithBackoff();
+      scheduleRejoinWithBackoff();
     }
   }
 
   function onAudioPlaying() {
     rejoinAttempts = 0;
     clearRejoinTimer();
+    detachGestureFallback();
     syncLocalAudioPausedFromElement();
   }
 
@@ -335,7 +250,7 @@ export function useLocalPlayback(audioRef) {
 
   function onAudioStalledOrWaiting(eventName) {
     // Fired even in throttled background tabs; immediate recovery trigger.
-    if (!userPaused && !sourceLoading && shouldRecover() && rejoinTimer == null) {
+    if (!sourceLoading && shouldRecover() && rejoinTimer == null) {
       console.debug("[airwave] stall event", eventName);
       rejoinAttempts = 0;
       scheduleRejoin(STALL_WATCHDOG_INTERVAL_MS);
@@ -344,7 +259,7 @@ export function useLocalPlayback(audioRef) {
 
   function runStallWatchdog() {
     const audio = audioRef.value;
-    if (!audio || !shouldRecover() || userPaused) return;
+    if (!audio || !shouldRecover()) return;
     if (rejoinTimer != null) return;
 
     const paused = audio.paused || audio.ended;
@@ -368,17 +283,31 @@ export function useLocalPlayback(audioRef) {
     }, RECONCILE_SETTLE_MS);
   }
 
+  /**
+   * Belt-and-braces for engines that refuse even muted play(): retry on the
+   * first pointer/key gesture, then detach once playback is running.
+   */
+  function installGestureFallback() {
+    if (typeof window === "undefined") return;
+    const events = ["pointerdown", "keydown", "touchstart"];
+    const onFirstGesture = () => {
+      if (localAudioPaused.value && rejoinTimer == null) {
+        void rejoinLiveStream("gesture-fallback");
+      }
+    };
+    for (const name of events) window.addEventListener(name, onFirstGesture, { capture: true });
+    detachGestureFallback = () => {
+      for (const name of events) window.removeEventListener(name, onFirstGesture, { capture: true });
+      detachGestureFallback = () => {};
+    };
+  }
+
   watch(
     () => playbackState.value.stream_url,
     async (newUrl) => {
-      if (!newUrl) {
-        stopLocalPlayback();
-        return;
-      }
-
-      if (!wantsLocalPlayback.value || !audioRef.value) return;
-
-      await rejoinLiveStream();
+      if (!newUrl) return;
+      if (!audioRef.value) return;
+      await rejoinLiveStream("prestart");
     }
   );
 
@@ -416,6 +345,11 @@ export function useLocalPlayback(audioRef) {
         audio.removeEventListener("canplay", onAudioCanPlay);
         audio.removeEventListener("timeupdate", onAudioTimeUpdate);
       };
+      // Element mounted before/after the stream URL arrived: cover both orders.
+      if (playbackState.value?.stream_url) {
+        void rejoinLiveStream("prestart");
+      }
+      installGestureFallback();
     },
     { immediate: true }
   );
@@ -433,6 +367,7 @@ export function useLocalPlayback(audioRef) {
 
   onUnmounted(() => {
     detachAudioStateListeners();
+    detachGestureFallback();
     clearRejoinTimer();
     if (watchdogTimer != null) {
       clearInterval(watchdogTimer);
@@ -443,17 +378,9 @@ export function useLocalPlayback(audioRef) {
       window.removeEventListener("pageshow", onVisibleReconcile);
       document.removeEventListener("resume", onVisibleReconcile);
     }
-    stopLocalPlayback();
   });
 
   return {
-    startLocalPlayback,
-    stopLocalPlayback,
-    pauseLocalPlayback,
-    resumeLocalPlayback,
-    localPlaybackStatus,
-    localPlaybackSessionDeps,
-    isLocalPlaybackActive,
     localVolume,
     isMuted,
     setLocalVolume,

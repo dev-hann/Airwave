@@ -1,11 +1,13 @@
 import { ref } from "vue";
 
+import { PlaybackMode, RepeatMode } from "@airwave/shared";
+
 import { fetchJson } from "./useApi";
 
 const playbackState = ref({
-  mode: "idle",
+  mode: PlaybackMode.IDLE,
   paused: false,
-  repeat_mode: "off",
+  repeat_mode: RepeatMode.OFF,
   shuffle_enabled: false,
   can_seek: false,
   now_playing_title: null,

@@ -120,8 +120,8 @@
           <UButton type="button" color="neutral" variant="ghost" icon="i-bi-skip-forward-fill" aria-label="Next" class="cursor-pointer" @click="skipCurrent" />
           <UButton
             type="button"
-            :color="playbackState.repeat_mode !== 'off' ? 'primary' : 'neutral'"
-            :variant="playbackState.repeat_mode !== 'off' ? 'soft' : 'ghost'"
+            :color="playbackState.repeat_mode !== RepeatMode.OFF ? 'primary' : 'neutral'"
+            :variant="playbackState.repeat_mode !== RepeatMode.OFF ? 'soft' : 'ghost'"
             :icon="repeatIcon"
             :aria-label="repeatLabel"
             class="cursor-pointer"
@@ -183,6 +183,7 @@
 </template>
 
 <script setup>
+import { RepeatMode } from "@airwave/shared";
 import { computed, inject } from "vue";
 import { useRouter } from "vue-router";
 import { useBreakpoint } from "../composables/useBreakpoint";
@@ -246,8 +247,8 @@ function onStripClick() {
 }
 
 function cycleRepeatMode() {
-  const modes = ["off", "all", "one"];
-  const currentMode = playbackState.value.repeat_mode || "off";
+  const modes = [RepeatMode.OFF, RepeatMode.ALL, RepeatMode.ONE];
+  const currentMode = playbackState.value.repeat_mode || RepeatMode.OFF;
   const nextMode = modes[(modes.indexOf(currentMode) + 1) % modes.length];
   setRepeatMode(nextMode);
 }

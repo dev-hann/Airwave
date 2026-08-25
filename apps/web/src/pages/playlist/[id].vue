@@ -267,11 +267,8 @@ const deleteModalOpen = ref(false);
 const playlistToDelete = ref(null);
 const firstTrackThumbnail = computed(() => {
   if(playlist.value?.thumbnail_url) return playlist.value.thumbnail_url;
-  const first = entries.value[0];
-  if (first?.thumbnail_url) return first.thumbnail_url;
-  if (first?.provider === "youtube" && first?.provider_item_id) {
-    return `https://i.ytimg.com/vi/${first.provider_item_id}/hqdefault.jpg`;
-  }
+  // Server resolves entry thumbnails (stored URL > provider id > parsed source).
+  return entries.value[0]?.thumbnail_url || null;
 });
 const songSearchTerm = ref("");
 

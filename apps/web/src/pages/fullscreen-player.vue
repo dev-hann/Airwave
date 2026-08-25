@@ -166,8 +166,8 @@
           />
           <UButton
             type="button"
-            :color="playbackState.repeat_mode !== 'off' ? 'primary' : 'neutral'"
-            :variant="playbackState.repeat_mode !== 'off' ? 'soft' : 'ghost'"
+            :color="playbackState.repeat_mode !== RepeatMode.OFF ? 'primary' : 'neutral'"
+            :variant="playbackState.repeat_mode !== RepeatMode.OFF ? 'soft' : 'ghost'"
             :icon="repeatIcon"
             size="lg"
             :aria-label="repeatLabel"
@@ -203,6 +203,7 @@
 </template>
 
 <script setup>
+import { RepeatMode } from "@airwave/shared";
 import { computed, inject } from "vue";
 import { useRouter } from "vue-router";
 import { useLibraryState } from "../composables/useLibraryState";
@@ -228,10 +229,10 @@ const bgStyle = computed(() => {
 const playPauseIcon = computed(() =>
   playbackState.value.mode === "playing" && !playbackState.value.paused ? "i-bi-pause-fill" : "i-bi-play-fill"
 );
-const repeatIcon = computed(() => (playbackState.value.repeat_mode === "one" ? "i-bi-repeat-1" : "i-bi-repeat"));
+const repeatIcon = computed(() => (playbackState.value.repeat_mode === RepeatMode.ONE ? "i-bi-repeat-1" : "i-bi-repeat"));
 const repeatLabel = computed(() => {
-  if (playbackState.value.repeat_mode === "all") return "Repeat all";
-  if (playbackState.value.repeat_mode === "one") return "Repeat one";
+  if (playbackState.value.repeat_mode === RepeatMode.ALL) return "Repeat all";
+  if (playbackState.value.repeat_mode === RepeatMode.ONE) return "Repeat one";
   return "Repeat off";
 });
 const localVolumePercent = computed(() => Math.round((localVolume.value || 0) * 100));

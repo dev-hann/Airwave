@@ -102,13 +102,7 @@ const { playlistSearchTerm, filteredPlaylists, resetSearch } = usePlaylistSelect
 const { notifyError } = useNotifications();
 const { playUrl, addUrl, addUrlToPlaylist, addLocalPathToPlaylist,addLocalPath, playLocalPath, removeFromQueue, removeFromPlaylist } = useLibraryState();
 
-const thumbnailSrc = computed(() => {
-  const item = props.item;
-  if (item?.thumbnail_url) return item.thumbnail_url;
-  const providerItemId = typeof item?.provider_item_id === "string" ? item.provider_item_id.trim() : "";
-  if (providerItemId) return `https://i.ytimg.com/vi/${providerItemId}/hqdefault.jpg`;
-  return "";
-});
+const thumbnailSrc = computed(() => props.item?.thumbnail_url || "");
 
 const showSecondary = computed(
   () => props.mode === "queue" || props.mode === "history" || (props.mode === "search" && props.item?.channel),

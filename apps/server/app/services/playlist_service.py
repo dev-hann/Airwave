@@ -6,6 +6,7 @@ import os
 import uuid
 from urllib.parse import urlparse
 
+from app.lib.thumbnails import resolved_thumbnail
 from app.db.repository import NewPlaylistEntry, NewQueueItem, Repository
 from app.services.extractors.youtube import youtube_video_id_from_url
 from app.services.source_resolver import MediaSourceResolver
@@ -510,7 +511,7 @@ class PlaylistService:
                 "title": entry.title,
                 "channel": entry.channel,
                 "duration_seconds": entry.duration_seconds,
-                "thumbnail_url": entry.thumbnail_url,
+                "thumbnail_url": resolved_thumbnail(entry),
                 "position": entry.position,
             }
             for entry in entries

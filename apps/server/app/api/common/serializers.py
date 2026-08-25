@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from app.lib.thumbnails import resolved_thumbnail
 from fastapi import Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -78,25 +79,6 @@ def _serialize_state(
 
 
 def _serialize_queue_items(items: list[Any]) -> list[dict[str, Any]]:
-    def resolved_thumbnail(item: Any) -> str | None:
-        if item.thumbnail_url:
-            return item.thumbnail_url
-        provider_item_id = getattr(item, "provider_item_id", None)
-        if provider_item_id:
-            return f"https://i.ytimg.com/vi/{provider_item_id}/hqdefault.jpg"
-        source_url = getattr(item, "source_url", None) or ""
-        parsed = urlparse(source_url)
-        host = (parsed.netloc or "").lower()
-        if host in {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"}:
-            video_id = (parse_qs(parsed.query).get("v") or [None])[0]
-            if video_id:
-                return f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
-        if host in {"youtu.be", "www.youtu.be"}:
-            video_id = (parsed.path or "").strip("/")
-            if video_id:
-                return f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
-        return None
-
     return [
         {
             "id": item.id,
@@ -117,25 +99,6 @@ def _serialize_queue_items(items: list[Any]) -> list[dict[str, Any]]:
 
 
 def _serialize_history_rows(rows: list[Any]) -> list[dict[str, Any]]:
-    def resolved_thumbnail(row: Any) -> str | None:
-        if row.thumbnail_url:
-            return row.thumbnail_url
-        provider_item_id = getattr(row, "provider_item_id", None)
-        if provider_item_id:
-            return f"https://i.ytimg.com/vi/{provider_item_id}/hqdefault.jpg"
-        source_url = getattr(row, "source_url", None) or ""
-        parsed = urlparse(source_url)
-        host = (parsed.netloc or "").lower()
-        if host in {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"}:
-            video_id = (parse_qs(parsed.query).get("v") or [None])[0]
-            if video_id:
-                return f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
-        if host in {"youtu.be", "www.youtu.be"}:
-            video_id = (parsed.path or "").strip("/")
-            if video_id:
-                return f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
-        return None
-
     return [
         {
             "id": row.id,

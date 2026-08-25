@@ -91,6 +91,9 @@ class FakeYtDlp:
     def __init__(self) -> None:
         self.spawn_calls = 0
 
+    def normalize_url(self, url: str) -> str:
+        return url
+
     def spawn_audio_download(self, url: str, output_path: str) -> FakeProc:
         _ = url
         self.spawn_calls += 1

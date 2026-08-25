@@ -9,8 +9,7 @@ router = APIRouter()
 @router.websocket("/ws/events")
 async def websocket_events(websocket: WebSocket) -> None:
     broker = websocket.app.state.ui_events
-    base_url = str(websocket.base_url)
-    queue = await broker.add_client(websocket, base_url)
+    queue = await broker.add_client(websocket)
     try:
         while True:
             payload = await queue.get()

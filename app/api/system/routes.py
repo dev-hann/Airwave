@@ -7,7 +7,7 @@ import httpx
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 
 from app.api.common.dependencies import _services
-from app.api.common.serializers import _publish_ui_snapshot, _serialize_state, _stream_url
+from app.api.common.serializers import _publish_ui_snapshot, _serialize_state, _stream_path
 from app.core.config import Settings
 from app.db.repository import NewPlaylistEntry
 from app.services.stream_engine import StreamEngine
@@ -90,7 +90,7 @@ async def upgrade_app(request: Request, background_tasks: BackgroundTasks) -> di
 def state(request: Request) -> dict[str, Any]:
     services = _services(request)
     engine: StreamEngine = services["engine"]
-    return _serialize_state(engine, _stream_url(request), repo=services["repo"])
+    return _serialize_state(engine, _stream_path(request), repo=services["repo"])
 
 
 @router.post("/state/like")
@@ -132,7 +132,7 @@ def like_current_song(request: Request) -> dict[str, Any]:
         "ok": True,
         "liked": True,
         "skipped_duplicates": bool(created.get("skipped_duplicates")),
-        "state": _serialize_state(engine, _stream_url(request), repo=repo),
+        "state": _serialize_state(engine, _stream_path(request), repo=repo),
     }
 
 
@@ -163,5 +163,5 @@ def unlike_current_song(request: Request) -> dict[str, Any]:
         "ok": True,
         "unliked": True,
         "removed": removed,
-        "state": _serialize_state(engine, _stream_url(request), repo=repo),
+        "state": _serialize_state(engine, _stream_path(request), repo=repo),
     }

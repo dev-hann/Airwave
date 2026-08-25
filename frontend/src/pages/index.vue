@@ -4,7 +4,7 @@
     <div class="home-hero mb-6 md:mb-8">
       <h1 class="text-3xl font-bold tracking-tight md:text-4xl">Airwave</h1>
       <p class="mt-2 max-w-xl text-sm text-muted md:text-base">
-        Shared live audio from YouTube. Add tracks and playlists to the queue, stream to browsers and Sonos.
+        Shared live audio from YouTube. Add tracks and playlists to the queue, stream to any browser.
       </p>
 
       <!-- Now playing summary -->
@@ -65,7 +65,7 @@
       </span>
     </div>
 
-    <!-- Grid: playlists | queue/history | sonos -->
+    <!-- Grid: playlists | queue/history -->
     <div class="home-grid min-w-0 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
       <!-- Featured playlists -->
       <div class="home-section min-w-0 rounded-xl border p-4 surface-elevated">
@@ -149,35 +149,9 @@
           No playback history yet.
         </div>
       </div>
-
-      <!-- Sonos card -->
-      <div v-if="speakers.length > 0" class="home-section home-sonos-card min-w-0 rounded-xl border p-4 surface-elevated lg:col-span-2">
-        <div class="flex items-center justify-between">
-          <div>
-            <h2 class="text-lg font-semibold">Sonos</h2>
-            <p class="text-sm text-muted">{{ speakers.length }} speaker{{ speakers.length === 1 ? "" : "s" }} available</p>
-          </div>
-          <div class="flex gap-2">
-            <UButton
-              v-if="firstCoordinator"
-              type="button"
-              color="primary"
-              variant="solid"
-              size="sm"
-              @click="playOnSpeaker(firstCoordinator.ip)"
-            >
-              Play on {{ firstCoordinator.name }}
-            </UButton>
-            <UButton type="button" color="neutral" variant="outline" size="sm" @click="openSonos">
-              Open Sonos
-            </UButton>
-          </div>
-        </div>
-      </div>
     </div>
   </section>
 </template>
-
 <script setup>
 import { computed } from "vue";
 import { useRouter } from "vue-router";
@@ -187,14 +161,11 @@ import Song from "../components/Song.vue";
 import { useBreakpoint } from "../composables/useBreakpoint";
 import { useLibraryState } from "../composables/useLibraryState";
 import { usePlaybackState } from "../composables/usePlaybackState";
-import { useSonosState } from "../composables/useSonosState";
 import {
   HISTORY_TAB,
   MOBILE_VIEW_PLAYLISTS,
   MOBILE_VIEW_QUEUE,
-  MOBILE_VIEW_SPEAKERS,
   SIDEBAR_QUEUE_VIEW,
-  SIDEBAR_SPEAKERS_VIEW,
   useUiState,
 } from "../composables/useUiState";
 
@@ -202,7 +173,6 @@ const router = useRouter();
 const { isMobile } = useBreakpoint();
 const { queue, history, playlists, importPlaylistUrl } = useLibraryState();
 const { playbackState } = usePlaybackState();
-const { speakers, playOnSpeaker } = useSonosState();
 const {
   activePlaylistId,
   activeQueueTab,
@@ -242,11 +212,6 @@ const queuePreview = computed(() => {
 const historyPreview = computed(() => {
   const h = Array.isArray(history.value) ? history.value : [];
   return h.slice(0, 5);
-});
-
-const firstCoordinator = computed(() => {
-  const list = speakers.value;
-  return list.find((s) => s.is_coordinator) ?? list[0] ?? null;
 });
 
 function goToSearch() {
@@ -298,13 +263,5 @@ function openPlaylist(playlist) {
 
 function clearActivePlaylist() {
   selectPlaylist(router, null);
-}
-
-function openSonos() {
-  if (isMobile.value) {
-    mobileView.value = MOBILE_VIEW_SPEAKERS;
-  } else {
-    sidebarView.value = SIDEBAR_SPEAKERS_VIEW;
-  }
 }
 </script>

@@ -43,7 +43,7 @@ Many music apps weren’t built for **shared listening**:
 **Airwave solves this:**
 
 * One stream → multiple listeners
-* Works across browsers and Sonos
+* Works across browsers
 * Import Spotify playlists → automatically matched to playable tracks
 * Multi-source playback (YouTube, direct URLs, optional local files)
 
@@ -58,7 +58,6 @@ Simple idea. Huge difference.
 * Browsers play the **same live MP3 stream** directly
 * All listeners hear the same thing
 * No per-user transcoding
-* Sonos devices pull the same stream URL
 
 ---
 
@@ -93,14 +92,6 @@ Simple idea. Huge difference.
 * Import Spotify playlists into your **library**
 * Auto-match tracks to YouTube
 * Review and pick the best version for your shared stream
-
----
-
-### 🔈 Sonos integration
-* Uses `/stream/live.mp3`
-* Discover speakers on your LAN
-* Group and control playback
-* Same stream as browser clients
 
 ---
 
@@ -144,7 +135,6 @@ Simple idea. Huge difference.
 * 🎉 Parties (everyone queues music)
 * 🏠 Shared household audio
 * 🧑‍💻 Remote team listening
-* 🔊 Sonos multi-room setups
 * 🎧 Friends hanging out online
 
 ---
@@ -163,18 +153,6 @@ yt-dlp → ffmpeg → shared MP3 stream → all listeners
 
 ## 🐳 Docker (recommended)
 
-For full functionality (especially Sonos):
-
-```yaml
-network_mode: host
-```
-
-Set your public URL:
-
-```env
-AIRWAVE_PUBLIC_BASE_URL=http://192.168.1.50:8000
-```
-
 For **local files**, mount host directories into the container and set `AIRWAVE_LOCAL_MEDIA_ROOTS` to those in-container paths (see **Configuration** below).
 
 ---
@@ -184,7 +162,6 @@ For **local files**, mount host directories into the container and set `AIRWAVE_
 ```env
 AIRWAVE_HOST=0.0.0.0
 AIRWAVE_PORT=8000
-AIRWAVE_PUBLIC_BASE_URL=http://192.168.1.50:8000
 
 AIRWAVE_FFMPEG_PATH=./bin/ffmpeg
 AIRWAVE_FFPROBE_PATH=./bin/ffprobe
@@ -235,7 +212,6 @@ AIRWAVE_PLAYLIST_SYNC_MAX_CONCURRENT=2
 * PlaylistService — queue/import orchestration
 * SyncService — optional background sync for imported playlists (off per playlist until enabled)
 * SharedMp3Hub — fan-out
-* SonosService — LAN speaker discovery, grouping, and control
 * BinariesService — yt-dlp/ffmpeg/ffprobe/deno management
 * Repository — persistence
 

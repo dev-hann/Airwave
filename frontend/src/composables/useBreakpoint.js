@@ -17,7 +17,7 @@ function readIsTabletLayout() {
 
 export function useBreakpoint() {
   const isMobile = ref(readIsMobile());
-  /** md–max-xl: floating right sidebar; queue/Sonos buttons toggle open + view. */
+  /** md–max-xl: floating right sidebar; the queue button toggles it open. */
   const isTabletLayout = ref(readIsTabletLayout());
 
   function update() {

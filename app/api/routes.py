@@ -14,9 +14,6 @@ from app.api.playlists.routes import router as playlists_router
 from app.api.queue.routes import router as queue_router
 from app.api.search.routes import router as search_router
 from app.api.settings.cookies import router as cookie_settings_router
-from app.api.sonos.playback import router as sonos_playback_router
-from app.api.sonos.settings import router as sonos_settings_router
-from app.api.sonos.speakers import router as sonos_speakers_router
 from app.api.spotify.imports import router as spotify_imports_router
 from app.api.system.routes import router as system_router
 from app.api.ws.events import router as ws_events_router
@@ -38,6 +35,3 @@ api_router.include_router(spotify_imports_router)
 api_router.include_router(playlists_router)
 api_router.include_router(ws_events_router)
 api_router.include_router(search_router)
-api_router.include_router(sonos_speakers_router)
-api_router.include_router(sonos_playback_router)
-api_router.include_router(sonos_settings_router)

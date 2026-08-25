@@ -151,15 +151,6 @@
               class="cursor-pointer"
               @click="toggleRightSidebar(SIDEBAR_QUEUE_VIEW)"
             />
-            <UButton
-              type="button"
-              :color="speakersSidebarButtonActive ? 'primary' : 'neutral'"
-              :variant="speakersSidebarButtonActive ? 'soft' : 'ghost'"
-              icon="i-bi-speaker-fill"
-              aria-label="Show speakers"
-              class="cursor-pointer"
-              @click="toggleRightSidebar(SIDEBAR_SPEAKERS_VIEW)"
-            />
           </div>
         <a
           class="mr-1 text-xs font-medium text-emerald-400 hover:text-emerald-300"
@@ -227,7 +218,7 @@ import { useRouter } from "vue-router";
 import { useBreakpoint } from "../composables/useBreakpoint";
 import { useLibraryState } from "../composables/useLibraryState";
 import { usePlaybackState } from "../composables/usePlaybackState";
-import { SIDEBAR_QUEUE_VIEW, SIDEBAR_SPEAKERS_VIEW, useUiState } from "../composables/useUiState";
+import { SIDEBAR_QUEUE_VIEW, useUiState } from "../composables/useUiState";
 
 const {
   startLocalPlayback,
@@ -251,13 +242,6 @@ const queueSidebarButtonActive = computed(() => {
     return rightSidebarOpen.value && sidebarView.value === SIDEBAR_QUEUE_VIEW;
   }
   return sidebarView.value === SIDEBAR_QUEUE_VIEW;
-});
-
-const speakersSidebarButtonActive = computed(() => {
-  if (isTabletLayout.value) {
-    return rightSidebarOpen.value && sidebarView.value === SIDEBAR_SPEAKERS_VIEW;
-  }
-  return sidebarView.value === SIDEBAR_SPEAKERS_VIEW;
 });
 
 const playPauseIcon = computed(() =>

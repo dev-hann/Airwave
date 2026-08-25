@@ -35,33 +35,6 @@ class SidebarPlaylistReorderRequest(BaseModel):
     pinned: bool
 
 
-class SonosPlayRequest(BaseModel):
-    speaker_ip: str
-
-
-class SonosStopRequest(BaseModel):
-    speaker_ip: str
-
-
-class SonosGroupRequest(BaseModel):
-    coordinator_ip: str
-    member_ip: str
-
-
-class SonosUngroupRequest(BaseModel):
-    speaker_ip: str
-
-
-class SonosVolumeRequest(BaseModel):
-    speaker_ip: str
-    volume: int = Field(ge=0, le=100)
-
-
-class SonosSettingPatchRequest(BaseModel):
-    setting: str = Field(min_length=1)
-    value: bool | int
-
-
 class BatchPlaylistEntryInput(BaseModel):
     source_url: str
     normalized_url: str

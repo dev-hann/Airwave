@@ -38,6 +38,3 @@ def configure_logging(level: str = "INFO") -> None:
 
     logging.getLogger("uvicorn.access").disabled = True
     logging.getLogger("urllib3.connectionpool").setLevel(logging.WARNING)
-    logging.getLogger("soco.services").setLevel(logging.WARNING)
-    logging.getLogger("soco.zonegroupstate").setLevel(logging.WARNING)
-    logging.getLogger("soco.discovery").setLevel(logging.WARNING)

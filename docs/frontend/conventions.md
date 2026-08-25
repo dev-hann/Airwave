@@ -12,7 +12,7 @@ Read this before writing or modifying Vue code.
 ## Patterns
 
 - Use `fetchJson` from `composables/useApi.js` for API calls.
-- Global state: composables (`useLibraryState`, `useSonosState`, …) + `eventBus` — see `docs/frontend/structure.md`. `App.vue` is the coordinator; children emit upward.
+- Global state: composables (`useLibraryState`, `usePlaybackState`, …) + `eventBus` — see `docs/frontend/structure.md`. `App.vue` is the coordinator; children emit upward.
 - File-based routing (`vite-plugin-pages`): new page = new file in `pages/`. No manual route registration.
 
 ## UX rules

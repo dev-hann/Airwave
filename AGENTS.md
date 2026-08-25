@@ -4,7 +4,7 @@ Core working guide for code agents in this repo. This file is the **index** — 
 
 ## Purpose
 
-**Airwave**: FastAPI backend + Vue/Vite frontend exposing **one shared live MP3 stream** for all clients. Users add YouTube URLs or playlists to a shared queue (Spotify playlists are importable via YouTube matching; SoundCloud/Mixcloud support was removed in this fork); browsers play the live stream directly via an `<audio>` element; Sonos devices consume the same stream URL. Optional WLED/LedFX integration is external, not built in.
+**Airwave**: FastAPI backend + Vue/Vite frontend exposing **one shared live MP3 stream** for all clients. Users add YouTube URLs or playlists to a shared queue (Spotify playlists are importable via YouTube matching; SoundCloud/Mixcloud support was removed in this fork); browsers play the live stream directly via an `<audio>` element. (Sonos support was also removed in this fork; WLED/LedFX integration is external, not built in.)
 
 Historical note: upstream had a SendSpin synchronized-playback subsystem (server + browser client); this fork removed it entirely — browsers play `/stream/live.mp3` directly. Do not reintroduce per-client audio paths.
 
@@ -12,7 +12,7 @@ This is a maintained fork (`dev-hann/Airwave`); upstream is inactive. See `docs/
 
 ## Stack
 
-- Backend: Python 3.12+, FastAPI, SQLAlchemy 2, pydantic-settings, `soco`
+- Backend: Python 3.12+, FastAPI, SQLAlchemy 2, pydantic-settings
 - Frontend: Vue 3 (`<script setup>`), file-based routing (vite-plugin-pages), `@nuxt/ui`, Vite
 - Runtime tools: `yt-dlp`, `ffmpeg`/`ffprobe`, `deno` (managed by BinariesService)
 - Storage: SQLite via `AIRWAVE_DB_URL`
@@ -34,11 +34,11 @@ This is a maintained fork (`dev-hann/Airwave`); upstream is inactive. See `docs/
 
 - `app/main.py` — composition root: service wiring, lifespan
 - `app/api/` — 19 domain sub-routers mounted by `app/api/routes.py` (45-line aggregator); shared models/serializers in `app/api/common/`
-- `app/services/` — business logic (StreamEngine, PlaylistService, YtDlpService, FfmpegPipeline, SonosService, BinariesService, …)
+- `app/services/` — business logic (StreamEngine, PlaylistService, YtDlpService, FfmpegPipeline, BinariesService, …)
 - `app/db/` — SQLAlchemy models + `repository.py` (all persistence, manual migrations)
 - `app/core/config.py` — `AIRWAVE_*` settings
 - `frontend/src/` — Vue app; builds to `app/static/dist` (served by FastAPI)
-- `tests/` — pytest, 238 tests. `tests_e2e/` does **not** exist.
+- `tests/` — pytest, 159 tests. `tests_e2e/` does **not** exist.
 
 ## Hard rules
 

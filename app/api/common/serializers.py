@@ -14,12 +14,11 @@ from .dependencies import _services
 templates = Jinja2Templates(directory="app/templates")
 
 
-def _stream_url(request: Request) -> str:
-    return _services(request)["settings"].stream_url_for(str(request.base_url))
-
-
-def _stream_url_from_base(settings: Any, base_url: str) -> str:
-    return settings.stream_url_for(base_url)
+def _stream_path(request: Request) -> str:
+    """Browser-facing stream reference. Relative path only: the UI and the
+    stream are served from the same origin, so this works regardless of the
+    host the client used to reach the server (LAN IP, Tailscale IP, ...)."""
+    return _services(request)["settings"].stream_path
 
 
 def _prefer_youtube_hq_thumbnail(url: str | None) -> str | None:
@@ -144,39 +143,14 @@ def _serialize_history_rows(rows: list[Any]) -> list[dict[str, Any]]:
     ]
 
 
-def _serialize_sonos_speaker_base(speaker: Any) -> dict[str, Any]:
-    return {
-        "ip": speaker.ip,
-        "name": speaker.name,
-        "uid": speaker.uid,
-        "coordinator_uid": speaker.coordinator_uid,
-        "group_member_uids": speaker.group_member_uids,
-        "volume": speaker.volume,
-        "transport_state": getattr(speaker, "transport_state", None),
-        "is_playing": bool(getattr(speaker, "is_playing", False)),
-        "is_coordinator": speaker.is_coordinator,
-    }
-
-
-def _serialize_sonos_speaker(speaker: Any, speakers_by_uid: dict[str, Any]) -> dict[str, Any]:
-    payload = _serialize_sonos_speaker_base(speaker)
-    payload["group_members"] = [
-        _serialize_sonos_speaker_base(member)
-        for member_uid in speaker.group_member_uids
-        if (member := speakers_by_uid.get(member_uid)) is not None
-    ]
-    return payload
-
-
-def build_ui_snapshot(app, base_url: str) -> dict[str, Any]:
+def build_ui_snapshot(app) -> dict[str, Any]:
     settings = app.state.settings
-    stream_url = _stream_url_from_base(settings, base_url)
     engine: StreamEngine = app.state.stream_engine
     repo = app.state.repository
     playlist = app.state.playlist_service
     return {
         "type": "snapshot",
-        "state": _serialize_state(engine, stream_url, repo=repo),
+        "state": _serialize_state(engine, settings.stream_path, repo=repo),
         "queue": _serialize_queue_items(repo.list_queue()),
         "history": _serialize_history_rows(repo.list_history(limit=settings.history_limit)),
         "playlists": playlist.list_playlists(),
@@ -185,16 +159,19 @@ def build_ui_snapshot(app, base_url: str) -> dict[str, Any]:
 
 def _publish_ui_snapshot(request: Request) -> None:
     services = _services(request)
-    services["ui_events"].publish_snapshot(str(request.base_url))
+    services["ui_events"].publish_snapshot()
 
 
 def render_frontend_shell(request: Request) -> HTMLResponse:
     services = _services(request)
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         request=request,
         name="index.html",
         context={
             "app_name": services["settings"].app_name,
-            "stream_url": _stream_url(request),
         },
     )
+    # The shell references the (unhashed) bundle by fixed URL; it must always
+    # be revalidated so clients pick up new builds instead of a stale UI.
+    response.headers["Cache-Control"] = "no-cache"
+    return response

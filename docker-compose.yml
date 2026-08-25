@@ -1,4 +1,4 @@
-# Airwave – shared live MP3 stream, queue, and Sonos control
+# Airwave – shared live MP3 stream and queue
 # Image: ghcr.io/dev-hann/airwave (CI builds on every push; :latest moves only on tag pushes)
 #
 # Run:  docker compose up -d
@@ -13,12 +13,11 @@ services:
     image: ghcr.io/dev-hann/airwave:latest
     container_name: airwave
     restart: unless-stopped
-    # Sonos discovery relies on SSDP multicast, which does not reach the default
-    # Docker bridge network reliably. Host networking allows SoCo discovery to
-    # see speakers on the LAN.
-    #
-    # This is intended for Linux Docker hosts. With host networking the app is
-    # still available on http://localhost:8000 and the `ports` section is not used.
+    # Host networking keeps the deployment simple (the watchtower HTTP API is
+    # reached via localhost, and AIRWAVE_WATCHTOWER_URL assumes it). It was
+    # historically required for Sonos SSDP discovery, which has been removed.
+    # Intended for Linux Docker hosts; with host networking the app is still
+    # available on http://localhost:8000 and the `ports` section is not used.
     network_mode: host
     depends_on:
       - watchtower
@@ -34,7 +33,6 @@ services:
       #- /mnt/videos:/mnt/videos
 
     # Optional env (uncomment as needed):
-    #   AIRWAVE_PUBLIC_BASE_URL: "http://192.168.1.50:8000"
     #   AIRWAVE_LOCAL_MEDIA_ROOTS: "/mnt/music,/mnt/videos"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/"]

@@ -28,7 +28,49 @@ def test_health_and_state_endpoints(tmp_path):
         assert payload["repeat_mode"] in ("off", "all", "one")
         assert payload["shuffle_enabled"] in (True, False)
         assert payload["now_playing_is_liked"] in (True, False)
-        assert payload["stream_url"].endswith("/stream/live.mp3")
+        # Browser-facing stream reference is a relative path (same-origin),
+        # independent of the host used to reach the server.
+        assert payload["stream_url"] == "/stream/live.mp3"
+
+
+def test_state_stream_url_stays_relative_for_arbitrary_host(tmp_path):
+    settings = Settings(
+        db_url=f"sqlite+pysqlite:///{tmp_path}/api_host.db",
+        yt_dlp_path="/bin/echo",
+        ffmpeg_path="/bin/echo",
+    )
+    app = create_app(settings=settings, start_engine=False)
+    with TestClient(app) as client:
+        state = client.get("/api/state", headers={"Host": "100.71.158.16:8000"})
+        assert state.status_code == 200
+        assert state.json()["stream_url"] == "/stream/live.mp3"
+
+
+def test_websocket_snapshot_stream_url_is_relative(tmp_path):
+    settings = Settings(
+        db_url=f"sqlite+pysqlite:///{tmp_path}/api_ws.db",
+        yt_dlp_path="/bin/echo",
+        ffmpeg_path="/bin/echo",
+    )
+    app = create_app(settings=settings, start_engine=False)
+    with TestClient(app) as client:
+        with client.websocket_connect("/api/ws/events") as ws:
+            payload = ws.receive_json()
+            assert payload["type"] == "snapshot"
+            assert payload["state"]["stream_url"] == "/stream/live.mp3"
+
+
+def test_frontend_shell_sets_no_cache_headers(tmp_path):
+    settings = Settings(
+        db_url=f"sqlite+pysqlite:///{tmp_path}/api_shell.db",
+        yt_dlp_path="/bin/echo",
+        ffmpeg_path="/bin/echo",
+    )
+    app = create_app(settings=settings, start_engine=False)
+    with TestClient(app) as client:
+        shell = client.get("/")
+        assert shell.status_code == 200
+        assert shell.headers["cache-control"] == "no-cache"
 
 
 def test_serialize_state_prefers_hq_youtube_thumbnail_over_maxres():

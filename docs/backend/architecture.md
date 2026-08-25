@@ -22,13 +22,14 @@ Queue (SQLite) ──▶ StreamEngine (worker thread)
                       │
         ┌─────────────┴──────────────┐
         ▼                            ▼
-  HTTP listeners                (Sonos pulls the
-  /stream/live.mp3               same /stream URL)
+  HTTP listeners
+  /stream/live.mp3
   (browser <audio>)
 ```
 
 - Ports: `8000` FastAPI (API + UI + stream).
-- Docker `network_mode: host` is required for Sonos SSDP discovery — do not switch to bridge networking without solving that.
+- Browser-facing `stream_url` (API state, WS snapshots) is a **relative path** (`settings.stream_path`, default `/stream/live.mp3`). The UI and the stream share one origin, so this works no matter which host (LAN IP, VPN IP, localhost) a client used. There is no absolute-URL computation and no `AIRWAVE_PUBLIC_BASE_URL`.
+- The compose file keeps Docker `network_mode: host` for simplicity (historically required for Sonos SSDP discovery; Sonos support has since been removed).
 - StreamEngine runs in-process. Restarting the app always breaks the live stream. Horizontal scaling is impossible by design; do not add per-client transcoding.
 
 ## Module map (with sizes — bigger = more care)
@@ -41,7 +42,6 @@ Queue (SQLite) ──▶ StreamEngine (worker thread)
 | `services/playlist_service.py` | ~687 | URL ingestion, playlist preview/import, queue construction |
 | `services/spotify_import_service.py` | ~506 | Spotify → YouTube matching |
 | `services/yt_dlp_service.py` | ~440 | Metadata, source resolution, playlist inspection |
-| `services/sonos_service.py` | ~422 | soco discovery/grouping/control |
 | `services/ffmpeg_pipeline.py` | ~352 | ffmpeg/ffprobe spawn, transcode, probe |
 | `services/source_resolver.py` | ~313 | Local media allowlist + direct HTTP media |
 | `services/sync_service.py` | ~307 | Background playlist auto-sync |
@@ -52,7 +52,7 @@ Queue (SQLite) ──▶ StreamEngine (worker thread)
 ## API surface
 
 - `app/api/routes.py` is a 45-line aggregator mounting **19 domain sub-routers** under `/api`.
-- Route domains live in `app/api/{system,binaries,settings,queue,media,playback,history,playlist,playlists,ws,search,sonos,spotify}/`.
+- Route domains live in `app/api/{system,binaries,settings,queue,media,playback,history,playlist,playlists,ws,search,spotify}/`.
 - Shared helpers: `app/api/common/` — `models.py` (Pydantic schemas), `serializers.py` (`_serialize_*`, UI snapshot), `dependencies.py` (`_services(request)` accessor), `responses.py` (`GracefulStreamingResponse`).
 - 73 endpoints under `/api` (72 HTTP + 1 WS) plus root routes in `app/api/root.py` (`/` and `/stream/live.mp3`).
 - OpenAPI docs at `/docs` (auto-generated).

@@ -10,7 +10,7 @@ from fastapi import WebSocket
 
 
 EventPayload = dict[str, Any]
-SnapshotBuilder = Callable[[str], Awaitable[EventPayload]]
+SnapshotBuilder = Callable[[], Awaitable[EventPayload]]
 
 
 class UiEventBroker:
@@ -38,40 +38,40 @@ class UiEventBroker:
             return
         loop.call_soon_threadsafe(self._publish_now, payload)
 
-    def publish_snapshot(self, base_url: str) -> None:
+    def publish_snapshot(self) -> None:
         with self._lock:
             loop = self._loop
         if loop is None:
             return
         if loop.is_closed():
             return
-        loop.call_soon_threadsafe(self._schedule_snapshot, base_url)
+        loop.call_soon_threadsafe(self._schedule_snapshot)
 
-    async def add_client(self, websocket: WebSocket, base_url: str) -> asyncio.Queue[EventPayload]:
+    async def add_client(self, websocket: WebSocket) -> asyncio.Queue[EventPayload]:
         await websocket.accept()
         queue: asyncio.Queue[EventPayload] = asyncio.Queue(maxsize=32)
         with self._lock:
             self._subscribers.add(queue)
-        await self._enqueue_snapshot(queue, base_url)
+        await self._enqueue_snapshot(queue)
         return queue
 
     async def remove_client(self, queue: asyncio.Queue[EventPayload]) -> None:
         with self._lock:
             self._subscribers.discard(queue)
 
-    def _schedule_snapshot(self, base_url: str) -> None:
+    def _schedule_snapshot(self) -> None:
         loop = asyncio.get_running_loop()
-        loop.create_task(self._broadcast_snapshot(base_url))
+        loop.create_task(self._broadcast_snapshot())
 
-    async def _broadcast_snapshot(self, base_url: str) -> None:
-        payload = await self._build_snapshot(base_url)
+    async def _broadcast_snapshot(self) -> None:
+        payload = await self._build_snapshot()
         self._publish_now(payload)
 
-    async def _enqueue_snapshot(self, queue: asyncio.Queue[EventPayload], base_url: str) -> None:
-        payload = await self._build_snapshot(base_url)
+    async def _enqueue_snapshot(self, queue: asyncio.Queue[EventPayload]) -> None:
+        payload = await self._build_snapshot()
         queue.put_nowait(payload)
 
-    async def _build_snapshot(self, base_url: str) -> EventPayload:
+    async def _build_snapshot(self) -> EventPayload:
         if self._snapshot_builder is None:
             now = time.time()
             return {
@@ -79,7 +79,7 @@ class UiEventBroker:
                 "timestamp": now,
                 "state": {},
             }
-        snapshot = await self._snapshot_builder(base_url)
+        snapshot = await self._snapshot_builder()
         snapshot.setdefault("type", "snapshot")
         snapshot.setdefault("timestamp", time.time())
         return snapshot

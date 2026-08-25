@@ -49,17 +49,6 @@
     </UButton>
     <UButton
       type="button"
-      :color="mobileView === MOBILE_VIEW_SPEAKERS ? 'primary' : 'neutral'"
-      :variant="mobileView === MOBILE_VIEW_SPEAKERS ? 'soft' : 'ghost'"
-      class="flex min-h-[2.75rem] min-w-[2.75rem] flex-col gap-0.5 p-2"
-      aria-label="Speakers"
-      @click="mobileView = MOBILE_VIEW_SPEAKERS"
-    >
-      <UIcon name="i-bi-speaker-fill" class="size-5" />
-      <span class="text-xs">Speakers</span>
-    </UButton>
-    <UButton
-      type="button"
       :color="isActiveSettings ? 'primary' : 'neutral'"
       :variant="isActiveSettings ? 'soft' : 'ghost'"
       class="flex min-h-[2.75rem] min-w-[2.75rem] flex-col gap-0.5 p-2"
@@ -80,7 +69,6 @@ import {
   MOBILE_VIEW_HOME,
   MOBILE_VIEW_PLAYLISTS,
   MOBILE_VIEW_QUEUE,
-  MOBILE_VIEW_SPEAKERS,
   useUiState,
 } from "../composables/useUiState";
 

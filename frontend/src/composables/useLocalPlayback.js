@@ -1,5 +1,7 @@
 import { onUnmounted, ref, watch } from "vue";
 
+import Hls from "hls.js";
+
 import { usePlaybackState } from "./usePlaybackState";
 
 const LOCAL_VOLUME_STORAGE_KEY = "airwave:settings:local-volume";
@@ -10,6 +12,18 @@ const REJOIN_BACKOFF_BASE_MS = 1000;
 const REJOIN_BACKOFF_MAX_MS = 8000;
 const STALL_WATCHDOG_INTERVAL_MS = 5000;
 const RECONCILE_SETTLE_MS = 250;
+
+// HLS tuning: a deep forward buffer is what lets mobile/VPN listeners ride
+// out multi-second network stalls without an audible cut, and catch up on
+// missed segments afterwards instead of rejoining at the live edge.
+const HLS_MAX_BUFFER_SECONDS = 30;
+const HLS_MAX_MAX_BUFFER_SECONDS = 90;
+// Start listeners this many segments behind the live edge (4s segments).
+const HLS_LIVE_SYNC_SEGMENT_COUNT = 3;
+
+function canPlayNativeHls(audio) {
+  return Boolean(audio) && audio.canPlayType("application/vnd.apple.mpegurl") !== "";
+}
 
 function clampVolume(value) {
   if (!Number.isFinite(value)) return DEFAULT_LOCAL_VOLUME;
@@ -45,13 +59,16 @@ function isFirefox() {
 /**
  * Shared local playback over a single audio element. Call from the component that owns the element (e.g. App.vue).
  *
- * Muted-prestart model:
+ * Muted-prestart model over the shared HLS live stream (/stream/live.m3u8):
  * - The audio element connects and plays MUTED as soon as the stream URL is
  *   known. Muted playback needs no user gesture, so every visitor arrives
  *   already buffering at the live edge; unmuting is instant.
  * - Listening on/off is purely local: the mute button and volume slider only
  *   touch this browser. Server playback (play/pause/skip) is controlled
  *   separately and shared by all listeners.
+ * - Engines with native HLS (iOS Safari) use the element directly; everyone
+ *   else uses hls.js (MSE) with a deep forward buffer (~30s) so mobile/VPN
+ *   listeners survive stalls and catch up instead of rejoining.
  * - The element stays connected (muted or not) and rejoins automatically on
  *   stalls, network errors, and background freezes (backoff 1s→8s, unlimited).
  * @param {import('vue').Ref<HTMLAudioElement | null>} audioRef
@@ -73,6 +90,18 @@ export function useLocalPlayback(audioRef) {
   let watchdogTimer = null;
   let watchdogLastCurrentTime = -1;
   let detachGestureFallback = () => {};
+  let hls = null; // hls.js instance; null on native-HLS engines (iOS Safari)
+
+  function destroyHls() {
+    if (hls != null) {
+      try {
+        hls.destroy();
+      } catch {
+        // Destroy racing a fatal error is benign.
+      }
+      hls = null;
+    }
+  }
 
   function clearRejoinTimer() {
     if (rejoinTimer != null) {
@@ -118,11 +147,42 @@ export function useLocalPlayback(audioRef) {
     const streamUrl = playbackState.value?.stream_url;
     if (!audio || !streamUrl || !shouldRecover()) return;
 
-    console.debug("[airwave] rejoin live stream", { reason, attempt: rejoinAttempts + 1 });
+    console.debug("[airwave] rejoin live stream", { reason, attempt: rejoinAttempts + 1, native: canPlayNativeHls(audio) });
     sourceLoading = true;
+    destroyHls();
     audio.removeAttribute("src");
     audio.load();
-    audio.src = streamUrlWithCacheBust(streamUrl);
+
+    if (canPlayNativeHls(audio)) {
+      // iOS Safari & friends play HLS natively; the element manages the
+      // buffer and live-edge sync itself.
+      audio.src = streamUrlWithCacheBust(streamUrl);
+    } else if (typeof window !== "undefined" && Hls.isSupported()) {
+      hls = new Hls({
+        maxBufferLength: HLS_MAX_BUFFER_SECONDS,
+        maxMaxBufferLength: HLS_MAX_MAX_BUFFER_SECONDS,
+        liveSyncDurationCount: HLS_LIVE_SYNC_SEGMENT_COUNT,
+        backBufferLength: 90,
+      });
+      hls.attachMedia(audio);
+      hls.loadSource(streamUrl);
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (!data?.fatal) return;
+        if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+          try {
+            hls?.recoverMediaError();
+            return;
+          } catch {
+            // fall through to rejoin
+          }
+        }
+        scheduleRejoinWithBackoff();
+      });
+    } else {
+      // Engine without MSE or native HLS — nothing this app can play on.
+      sourceLoading = false;
+      return;
+    }
     applyAudioVolume();
 
     try {
@@ -369,6 +429,7 @@ export function useLocalPlayback(audioRef) {
     detachAudioStateListeners();
     detachGestureFallback();
     clearRejoinTimer();
+    destroyHls();
     if (watchdogTimer != null) {
       clearInterval(watchdogTimer);
       watchdogTimer = null;

@@ -29,10 +29,10 @@ YouTube extractor changes are the most likely incident.
 
 Symptom: audio stops after a while when the browser goes to background / screen off.
 
-Diagnosed root cause on Android: **OS battery optimization kills the browser's
-background audio fetch** — the stream connection stays open but the phone stops
-reading data (server logs fill with `MP3 hub client queue full`). The web app's
-recovery logic (v0.2.2+) cannot help when the OS blocks the data itself.
+Diagnosed root cause on Android: **OS battery optimization throttles the
+browser's background network fetch**, so the phone falls behind the live edge.
+With the raw-MP3 stream this dropped chunks; since v1.3.0 (HLS) the deep
+client-side buffer rides most of this out and catches up on missed segments.
 
 Fix (per phone): disable battery optimization for the browser
 (e.g. Settings → Apps → Firefox → Battery → Unrestricted). Verified working on
@@ -48,12 +48,12 @@ Related notes:
 - Accessing the server through a VPN tunnel (e.g. Tailscale 100.x addresses)
   adds another throttling layer in the background — prefer direct LAN URLs at
   home.
-- Server-side stall evidence: `docker logs airwave | grep "queue full"`.
-- Since the hub stall-eviction fix, a subscriber whose queue stays full for
-  `AIRWAVE_HUB_STALL_EVICTION_SECONDS` (default 30s) is dropped with
-  `MP3 hub evicted stalled subscriber`; its connection ends and the browser
-  reconnects at the live edge. Repeated evictions of the same client still
-  point at battery optimization / VPN throttling on that phone.
+- Server-side evidence of listeners: `Engine stats ... hls_stream_listeners=N`
+  counts clients that polled the playlist in the last 30s. The raw-MP3
+  `queue full` / zombie-subscriber machinery (`SharedMp3Hub`,
+  `AIRWAVE_STREAM_QUEUE_SIZE`, `AIRWAVE_HUB_STALL_EVICTION_SECONDS`) was
+  removed in v1.3.0 when the stream moved to HLS — segments are fetched over
+  plain HTTP, so slow clients cannot backpressure the engine anymore.
 
 
 ## Binary management

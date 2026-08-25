@@ -16,23 +16,26 @@ class Settings(BaseSettings):
     db_url: str = "sqlite+pysqlite:///./data/airwave.db"
     host: str = "0.0.0.0"
     port: int = 8000
-    stream_path: str = "/stream/live.mp3"
+    stream_path: str = "/stream/live.m3u8"
     yt_dlp_path: str = "./bin/yt-dlp"
     ffmpeg_path: str = "./bin/ffmpeg"
     ffprobe_path: str = "./bin/ffprobe"
     deno_path: str = "./bin/deno"
+    # Bitrate of the intermediate MP3 pipe fed into the HLS packager. Keep this
+    # generously above hls_bitrate so re-encoding does not compound artifacts.
     mp3_bitrate: str = "320k"
     # Keep FFmpeg reads large enough to tolerate scheduler jitter without adding
     # noticeable live-stream latency. Tiny chunks can cause occasional underruns.
     chunk_size: int = 4096
-    # Per-listener buffer depth (~6.5s at 320kbps with 4KB chunks). Larger values
-    # let slow/mobile consumers survive short stalls without dropping chunks.
-    stream_queue_size: int = 64
-    # How long a subscriber's hub queue may stay continuously full (subscriber
-    # draining nothing) before it is evicted: its blocked reader thread cannot
-    # observe client disconnects, so eviction frees the leaked thread/queue and
-    # lets the browser reconnect at the live edge. 0 disables eviction.
-    hub_stall_eviction_seconds: float = Field(default=30.0, ge=0.0, le=600.0)
+    # Final listener-facing AAC bitrate of the HLS stream.
+    hls_bitrate: str = "192k"
+    # HLS segment duration in seconds. Smaller = lower latency but more
+    # playlist reloads; 4s is the common radio-app compromise.
+    hls_segment_seconds: float = Field(default=4.0, ge=1.0, le=30.0)
+    # Number of segments kept in the live window (listeners joining fetch at
+    # most this much history; ~4x this value in seconds of buffer is what
+    # mobile clients can ride out without dropping).
+    hls_window_size: int = Field(default=12, ge=3, le=120)
     queue_poll_seconds: float = Field(default=1.0, ge=0.1, le=10.0)
     stream_stats_log_seconds: float = Field(default=15.0, ge=1.0, le=300.0)
     history_limit: int = 50

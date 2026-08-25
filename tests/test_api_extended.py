@@ -177,9 +177,22 @@ class FakeEngine:
             now_playing_duration_seconds=None,
         )
         self.skipped = False
+        self.noted_listeners: list[str] = []
 
     def skip_current(self) -> None:
         self.skipped = True
+
+    def note_stream_listener(self, client_key: str) -> None:
+        self.noted_listeners.append(client_key)
+
+    def hls_playlist_text(self) -> str:
+        return "#EXTM3U\n#EXT-X-VERSION:3\n"
+
+    def hls_segment_path(self, name: str):
+        return None
+
+    def hls_segment_mime_type(self) -> str:
+        return "video/mp2t"
 
     def play_previous_or_restart(self) -> str:
         return "noop"
@@ -602,19 +615,30 @@ def test_search_endpoint(tmp_path):
         assert payload["results"][0]["provider_item_id"] == "v1"
 
 
-def test_stream_endpoint_returns_bytes_without_hanging(tmp_path):
+def test_stream_playlist_endpoint_serves_hls_without_hanging(tmp_path):
     client, app = _build_test_client(tmp_path)
     with client:
         app.state.stream_engine = FakeEngine()
-        with client.stream("GET", "/stream/live.mp3") as resp:
-            assert resp.status_code == 200
-            assert resp.headers["cache-control"] == "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
-            assert resp.headers["pragma"] == "no-cache"
-            assert resp.headers["expires"] == "0"
-            assert resp.headers["x-accel-buffering"] == "no"
-            iterator = resp.iter_bytes()
-            first = next(iterator)
-            assert first.startswith(b"chunk-")
+        resp = client.get("/stream/live.m3u8")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("application/vnd.apple.mpegurl")
+        assert resp.headers["cache-control"] == "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
+        assert resp.headers["pragma"] == "no-cache"
+        assert resp.headers["expires"] == "0"
+        assert resp.text.startswith("#EXTM3U")
+        # Playlist polls register the client as a live listener.
+        assert app.state.stream_engine.noted_listeners
+
+
+def test_stream_segment_endpoints(tmp_path):
+    client, app = _build_test_client(tmp_path)
+    with client:
+        app.state.stream_engine = FakeEngine()
+        # Unknown segment names must 404 — includes path-traversal attempts.
+        assert client.get("/stream/seg0000000042.ts").status_code == 404
+        assert client.get("/stream/index.m3u8").status_code == 404
+        # The legacy raw MP3 endpoint is gone.
+        assert client.get("/stream/live.mp3").status_code == 404
 
 
 def test_binaries_endpoints(tmp_path):

@@ -1,11 +1,10 @@
 from io import BytesIO
-import queue
 import time
 from threading import Thread
 
 from app.db.models import QueueStatus
 from app.db.repository import NewQueueItem, Repository
-from app.services.stream_engine import PlaybackMode, SharedMp3Hub, StreamEngine
+from app.services.stream_engine import PlaybackMode, StreamEngine
 from app.services.yt_dlp_service import ResolvedTrack
 
 
@@ -53,6 +52,41 @@ class TruncatedFfmpeg(FakeFfmpeg):
         )
 
 
+class FakeSegmenter:
+    """Test double for the HLS segmenter: records writes, purges, listeners."""
+
+    def __init__(self) -> None:
+        self.written: list[bytes] = []
+        self.purge_count = 0
+        self.closed = False
+        self.listeners: dict[str, bool] = {}
+
+    def write(self, data: bytes) -> None:
+        self.written.append(data)
+
+    def purge(self) -> None:
+        self.purge_count += 1
+        self.written.clear()
+
+    def close(self) -> None:
+        self.closed = True
+
+    def playlist_text(self) -> str:
+        return "#EXTM3U\n"
+
+    def segment_path(self, name: str):
+        return None
+
+    def note_listener(self, client_key: str) -> None:
+        self.listeners[client_key] = True
+
+    def listener_count(self) -> int:
+        return len(self.listeners)
+
+    def segment_mime_type(self) -> str:
+        return "video/mp2t"
+
+
 class FakeYtDlp:
     def __init__(self) -> None:
         self.spawn_calls = 0
@@ -77,111 +111,6 @@ class FakeYtDlp:
         )
 
 
-def test_shared_hub_fan_out():
-    hub = SharedMp3Hub(stream_queue_size=16)
-    gen1 = hub.subscribe()
-    gen2 = hub.subscribe()
-    received: list[bytes] = []
-
-    def _consume(gen):
-        received.append(next(gen))
-
-    t1 = Thread(target=_consume, args=(gen1,))
-    t2 = Thread(target=_consume, args=(gen2,))
-    t1.start()
-    t2.start()
-    hub.publish(b"chunk")
-    t1.join(timeout=1)
-    t2.join(timeout=1)
-    assert received == [b"chunk", b"chunk"]
-    gen1.close()
-    gen2.close()
-
-
-def test_shared_hub_clear_drops_buffered_audio():
-    hub = SharedMp3Hub(stream_queue_size=16)
-    hub._clients["client-a"] = queue.Queue()  # noqa: SLF001 - focused hub coverage
-    hub._clients["client-b"] = queue.Queue()  # noqa: SLF001 - focused hub coverage
-
-    hub.publish(b"old-a")
-    hub.publish(b"old-b")
-
-    hub.clear()
-
-    assert hub._clients["client-a"].empty() is True  # noqa: SLF001
-    assert hub._clients["client-b"].empty() is True  # noqa: SLF001
-
-    hub.publish(b"fresh")
-
-    assert hub._clients["client-a"].get_nowait() == b"fresh"  # noqa: SLF001
-    assert hub._clients["client-b"].get_nowait() == b"fresh"  # noqa: SLF001
-
-
-def test_shared_hub_evicts_stalled_subscriber():
-    hub = SharedMp3Hub(stream_queue_size=4, stall_eviction_seconds=0.1)
-    gen = hub.subscribe()
-    received: list[bytes] = []
-
-    # Register the subscriber and consume exactly one chunk, then leave the
-    # generator suspended at the yield — the state a cancelled response
-    # iterator is left in when its reader thread cannot observe the
-    # disconnect (the production zombie-subscriber scenario).
-    t = Thread(target=lambda: received.append(next(gen)))
-    t.start()
-    t.join(timeout=1)
-    assert received == []
-    hub.publish(b"chunk")
-    t.join(timeout=1)
-    assert received == [b"chunk"]
-    assert hub.subscriber_count() == 1
-
-    # Publishing continues but the subscriber never drains: after the stall
-    # window it must be evicted and its generator unblocked via the sentinel.
-    deadline = time.monotonic() + 2.0
-    while hub.subscriber_count() > 0 and time.monotonic() < deadline:
-        hub.publish(b"chunk")
-        time.sleep(0.01)
-
-    assert hub.subscriber_count() == 0
-    # Sentinel ends the generator: exhausted, client entry already removed.
-    assert next(gen, "END") == "END"
-
-
-def test_shared_hub_keeps_slow_subscriber_within_stall_window():
-    hub = SharedMp3Hub(stream_queue_size=4, stall_eviction_seconds=5.0)
-    gen = hub.subscribe()
-    received: list[bytes] = []
-
-    def _consume():
-        for chunk in gen:
-            received.append(chunk)
-            time.sleep(0.02)
-
-    t = Thread(target=_consume)
-    t.start()
-    hub.publish(b"chunk0")
-    t.join(timeout=1)
-    assert received == [b"chunk0"]
-
-    # Repeated bursts beyond capacity: drops happen but the subscriber keeps
-    # draining between bursts, resetting the stall window, so it must NOT be
-    # evicted no matter how many drop events accumulate.
-    for _burst in range(3):
-        for _i in range(10):
-            hub.publish(b"chunk")
-        time.sleep(0.15)
-
-    assert hub.subscriber_count() == 1
-    assert len(received) > 10
-
-    # Unblock the consumer the same way eviction does.
-    client_q = next(iter(hub._clients.values()))  # noqa: SLF001 - focused hub coverage
-    client_q.put(None)  # type: ignore[arg-type]
-    t.join(timeout=1)
-    assert not t.is_alive()
-    assert hub.subscriber_count() == 0
-
-
 def test_stream_engine_playback_lifecycle(tmp_path):
     repo = Repository(f"sqlite+pysqlite:///{tmp_path}/engine.db")
     repo.init_db()
@@ -195,6 +124,7 @@ def test_stream_engine_playback_lifecycle(tmp_path):
         repository=repo,
         yt_dlp_service=FakeYtDlp(),
         ffmpeg_pipeline=FakeFfmpeg(),
+        hls_segmenter=FakeSegmenter(),
         chunk_size=2,
         queue_poll_seconds=0.1,
     )
@@ -220,18 +150,19 @@ def test_stream_engine_notifies_before_first_audio_chunk(tmp_path):
         repository=repo,
         yt_dlp_service=FakeYtDlp(),
         ffmpeg_pipeline=FakeFfmpeg(),
+        hls_segmenter=FakeSegmenter(),
         chunk_size=2,
         queue_poll_seconds=0.1,
         on_state_change=lambda: events.append("notify"),
     )
     engine._start_transition_silence = lambda: (None, None)  # type: ignore[method-assign]  # noqa: SLF001
-    original_publish = engine.hub.publish
+    original_write = engine.segmenter.write
 
-    def _record_publish(chunk: bytes) -> None:
+    def _record_write(chunk: bytes) -> None:
         events.append("publish")
-        original_publish(chunk)
+        original_write(chunk)
 
-    engine.hub.publish = _record_publish  # type: ignore[method-assign]
+    engine.segmenter.write = _record_write  # type: ignore[method-assign]
 
     engine._play_item(created[0].id)  # noqa: SLF001 - regression coverage for UI/audio ordering
 
@@ -256,6 +187,7 @@ def test_stream_engine_prefetches_upcoming_tracks_before_current_track_finishes(
         repository=repo,
         yt_dlp_service=FakeYtDlp(),
         ffmpeg_pipeline=FakeFfmpeg(),
+        hls_segmenter=FakeSegmenter(),
         chunk_size=2,
         queue_poll_seconds=0.1,
     )
@@ -303,6 +235,7 @@ def test_stream_engine_does_not_mark_upstream_truncation_complete(tmp_path):
         repository=repo,
         yt_dlp_service=FakeYtDlp(),
         ffmpeg_pipeline=TruncatedFfmpeg(),
+        hls_segmenter=FakeSegmenter(),
         chunk_size=2,
         queue_poll_seconds=0.1,
         playback_retry_count=0,
@@ -322,6 +255,7 @@ def test_pause_interrupt_is_consumed_without_lingering_skip_event(tmp_path):
         repository=repo,
         yt_dlp_service=FakeYtDlp(),
         ffmpeg_pipeline=FakeFfmpeg(),
+        hls_segmenter=FakeSegmenter(),
         queue_poll_seconds=0.01,
     )
 
@@ -332,25 +266,26 @@ def test_pause_interrupt_is_consumed_without_lingering_skip_event(tmp_path):
     assert engine._skip_event.is_set() is False  # noqa: SLF001
 
 
-def test_interrupt_clears_buffered_audio_for_connected_clients(tmp_path):
-    repo = Repository(f"sqlite+pysqlite:///{tmp_path}/interrupt-clear.db")
+def test_interrupt_purges_visible_stream_window(tmp_path):
+    repo = Repository(f"sqlite+pysqlite:///{tmp_path}/interrupt-purge.db")
     repo.init_db()
+    segmenter = FakeSegmenter()
     engine = StreamEngine(
         repository=repo,
         yt_dlp_service=FakeYtDlp(),
         ffmpeg_pipeline=FakeFfmpeg(),
+        hls_segmenter=segmenter,
         queue_poll_seconds=0.01,
     )
-    client_queue: queue.Queue[bytes] = queue.Queue()
-    engine.hub._clients["listener"] = client_queue  # noqa: SLF001 - focused regression coverage
 
-    engine.hub.publish(b"stale-audio")
+    engine._write_stream(b"stale-audio")  # noqa: SLF001 - feed the segmenter
 
-    assert client_queue.empty() is False
+    assert segmenter.written == [b"stale-audio"]
 
     engine._request_interrupt("skip")  # noqa: SLF001 - direct interrupt coverage
 
-    assert client_queue.empty() is True
+    assert segmenter.purge_count == 1
+    assert segmenter.written == []
 
 
 def test_paused_cycle_exits_cleanly_on_resume_interrupt(tmp_path):
@@ -360,6 +295,7 @@ def test_paused_cycle_exits_cleanly_on_resume_interrupt(tmp_path):
         repository=repo,
         yt_dlp_service=FakeYtDlp(),
         ffmpeg_pipeline=FakeFfmpeg(),
+        hls_segmenter=FakeSegmenter(),
         queue_poll_seconds=0.01,
     )
     engine.state.paused = True
@@ -377,10 +313,11 @@ def test_paused_cycle_publishes_silence_until_resume(tmp_path):
         repository=repo,
         yt_dlp_service=FakeYtDlp(),
         ffmpeg_pipeline=FakeFfmpeg(),
+        hls_segmenter=FakeSegmenter(),
         queue_poll_seconds=0.01,
     )
     published: list[bytes] = []
-    engine.hub.publish = published.append  # type: ignore[method-assign]
+    engine.segmenter.write = published.append  # type: ignore[method-assign]
     engine.state.paused = True
 
     def _resume_soon():
@@ -403,6 +340,7 @@ def test_paused_cycle_consumes_resume_interrupt_when_toggle_pause_clears_paused_
         repository=repo,
         yt_dlp_service=FakeYtDlp(),
         ffmpeg_pipeline=FakeFfmpeg(),
+        hls_segmenter=FakeSegmenter(),
         queue_poll_seconds=0.01,
     )
     engine.state.mode = PlaybackMode.playing
@@ -443,12 +381,13 @@ def test_playback_bridges_silence_before_first_track_chunk(tmp_path):
         repository=repo,
         yt_dlp_service=SlowStartYtDlp(),
         ffmpeg_pipeline=FakeFfmpeg(),
+        hls_segmenter=FakeSegmenter(),
         chunk_size=2,
         queue_poll_seconds=0.01,
     )
     published: list[bytes] = []
-    engine.hub.publish = published.append  # type: ignore[method-assign]
-    engine.hub.subscriber_count = lambda: 1  # type: ignore[method-assign]
+    engine.segmenter.write = published.append  # type: ignore[method-assign]
+    engine.segmenter.listener_count = lambda: 1  # type: ignore[method-assign]
 
     engine._play_item(created[0].id)  # noqa: SLF001 - regression coverage
 
@@ -474,6 +413,7 @@ def test_shuffle_reorders_queue_and_restores_previous_order(tmp_path, monkeypatc
         repository=repo,
         yt_dlp_service=FakeYtDlp(),
         ffmpeg_pipeline=FakeFfmpeg(),
+        hls_segmenter=FakeSegmenter(),
         queue_poll_seconds=0.01,
     )
 
@@ -512,6 +452,7 @@ def test_resolve_uses_prefetched_cache(tmp_path):
         repository=repo,
         yt_dlp_service=yt,
         ffmpeg_pipeline=FakeFfmpeg(),
+        hls_segmenter=FakeSegmenter(),
         queue_poll_seconds=0.01,
     )
     queue_item = repo.get_item(created[0].id)
@@ -539,6 +480,7 @@ def test_previous_reuses_recently_resolved_track(tmp_path):
         repository=repo,
         yt_dlp_service=NormalizingYtDlp(),
         ffmpeg_pipeline=FakeFfmpeg(),
+        hls_segmenter=FakeSegmenter(),
         queue_poll_seconds=0.01,
     )
 
@@ -614,6 +556,7 @@ def test_retry_resolves_fresh_metadata_after_failed_attempt(tmp_path):
         repository=repo,
         yt_dlp_service=yt,
         ffmpeg_pipeline=ffmpeg,
+        hls_segmenter=FakeSegmenter(),
         chunk_size=2,
         queue_poll_seconds=0.01,
         playback_retry_count=1,
@@ -638,9 +581,10 @@ def test_runtime_stats_reports_cache_sizes(tmp_path):
         repository=repo,
         yt_dlp_service=FakeYtDlp(),
         ffmpeg_pipeline=FakeFfmpeg(),
+        hls_segmenter=FakeSegmenter(),
         queue_poll_seconds=0.01,
     )
-    engine.hub.subscriber_count = lambda: 3  # type: ignore[method-assign]
+    engine.segmenter.listener_count = lambda: 3  # type: ignore[method-assign]
 
     first = ResolvedTrack(
         source_url="u1",
@@ -670,7 +614,7 @@ def test_runtime_stats_reports_cache_sizes(tmp_path):
     assert stats["cached_track_count"] == 2
     assert stats["recent_cache_count"] == 1
     assert stats["prefetched_audio_count"] == 0
-    assert stats["mp3_stream_listeners"] == 3
+    assert stats["hls_stream_listeners"] == 3
     assert stats["total_listeners"] == 3
 
 
@@ -687,6 +631,7 @@ def test_recent_resolved_cache_prunes_old_entries(tmp_path):
         repository=repo,
         yt_dlp_service=NormalizingYtDlp(),
         ffmpeg_pipeline=FakeFfmpeg(),
+        hls_segmenter=FakeSegmenter(),
         queue_poll_seconds=0.01,
     )
 
@@ -743,6 +688,7 @@ def test_stream_engine_direct_media_uses_spawn_for_source_not_ytdlp_stdin(tmp_pa
         repository=repo,
         yt_dlp_service=yt,
         ffmpeg_pipeline=ffmpeg,
+        hls_segmenter=FakeSegmenter(),
         chunk_size=2,
         queue_poll_seconds=0.01,
     )
@@ -775,6 +721,7 @@ def test_playback_uses_prefetched_audio_file_when_available(tmp_path):
         repository=repo,
         yt_dlp_service=yt,
         ffmpeg_pipeline=ffmpeg,
+        hls_segmenter=FakeSegmenter(),
         chunk_size=2,
         queue_poll_seconds=0.01,
     )
@@ -813,6 +760,7 @@ def test_playback_downloads_unprefetched_audio_file_before_ffmpeg(tmp_path):
         repository=repo,
         yt_dlp_service=yt,
         ffmpeg_pipeline=ffmpeg,
+        hls_segmenter=FakeSegmenter(),
         chunk_size=2,
         queue_poll_seconds=0.01,
     )
@@ -854,6 +802,7 @@ def test_live_playback_uses_resolved_stream_url(tmp_path):
         repository=repo,
         yt_dlp_service=yt,
         ffmpeg_pipeline=ffmpeg,
+        hls_segmenter=FakeSegmenter(),
         chunk_size=2,
         queue_poll_seconds=0.01,
     )
@@ -881,6 +830,7 @@ def test_get_current_ffmpeg_input_prefers_prefetch_then_stream_url(tmp_path):
         repository=repo,
         yt_dlp_service=FakeYtDlp(),
         ffmpeg_pipeline=FakeFfmpeg(),
+        hls_segmenter=FakeSegmenter(),
         chunk_size=2,
         queue_poll_seconds=0.1,
     )

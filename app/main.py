@@ -92,10 +92,11 @@ def create_app(settings: Settings | None = None, start_engine: bool = True) -> F
         yt_dlp_service=yt_dlp_service,
         ffmpeg_pipeline=ffmpeg_pipeline,
         chunk_size=settings.chunk_size,
-        stream_queue_size=settings.stream_queue_size,
-        hub_stall_eviction_seconds=settings.hub_stall_eviction_seconds,
         queue_poll_seconds=settings.queue_poll_seconds,
         stats_log_seconds=settings.stream_stats_log_seconds,
+        hls_segment_seconds=settings.hls_segment_seconds,
+        hls_window_size=settings.hls_window_size,
+        hls_bitrate=settings.hls_bitrate,
         on_state_change=notify_ui_state_changed,
     )
     source_resolver = MediaSourceResolver(ffmpeg_pipeline, settings.local_media_roots_list)

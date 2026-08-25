@@ -4,9 +4,9 @@ Core working guide for code agents in this repo. This file is the **index** — 
 
 ## Purpose
 
-**Airwave**: FastAPI backend + Vue/Vite frontend exposing **one shared live MP3 stream** for all clients. Users add YouTube URLs or playlists to a shared queue (Spotify playlists are importable via YouTube matching; SoundCloud/Mixcloud support was removed in this fork); browsers play the live stream directly via an `<audio>` element. (Sonos support was also removed in this fork; WLED/LedFX integration is external, not built in.)
+**Airwave**: FastAPI backend + Vue/Vite frontend exposing **one shared live MP3 stream** for all clients. Users add YouTube URLs or playlists to a shared queue (Spotify playlists are importable via YouTube matching; SoundCloud/Mixcloud support was removed in this fork); browsers play the live HLS stream (`/stream/live.m3u8`) directly via an `<audio>` element (hls.js or native HLS). (Sonos support was also removed in this fork; WLED/LedFX integration is external, not built in.)
 
-Historical note: upstream had a SendSpin synchronized-playback subsystem (server + browser client); this fork removed it entirely — browsers play `/stream/live.mp3` directly. Do not reintroduce per-client audio paths.
+Historical note: upstream had a SendSpin synchronized-playback subsystem (server + browser client); this fork removed it entirely — browsers play the shared HLS stream directly. Do not reintroduce per-client audio paths.
 
 This is a maintained fork (`dev-hann/Airwave`); upstream is inactive. See `docs/maintenance.md` for fork/license policy.
 
@@ -34,7 +34,7 @@ This is a maintained fork (`dev-hann/Airwave`); upstream is inactive. See `docs/
 
 - `app/main.py` — composition root: service wiring, lifespan
 - `app/api/` — 19 domain sub-routers mounted by `app/api/routes.py` (45-line aggregator); shared models/serializers in `app/api/common/`
-- `app/services/` — business logic (StreamEngine, PlaylistService, YtDlpService, FfmpegPipeline, BinariesService, …)
+- `app/services/` — business logic (StreamEngine, HlsSegmenter, PlaylistService, YtDlpService, FfmpegPipeline, BinariesService, …)
 - `app/db/` — SQLAlchemy models + `repository.py` (all persistence, manual migrations)
 - `app/core/config.py` — `AIRWAVE_*` settings
 - `frontend/src/` — Vue app; builds to `app/static/dist` (served by FastAPI)
@@ -42,7 +42,7 @@ This is a maintained fork (`dev-hann/Airwave`); upstream is inactive. See `docs/
 
 ## Hard rules
 
-1. Preserve the shared-stream model: `/stream/live.mp3` stays ONE stream for all listeners. No per-client transcoding.
+1. Preserve the shared-stream model: `/stream/live.m3u8` stays ONE HLS stream for all listeners. No per-client transcoding.
 2. Layering: `db ← services ← api ← main`. No reverse imports, no business logic in route handlers, DB access only via `Repository`.
 3. Subprocesses use list-argv only. Never `shell=True`, never interpolate URLs/paths into command strings.
 4. Shared services come from `request.app.state` (via `_services(request)`). No ad-hoc globals.

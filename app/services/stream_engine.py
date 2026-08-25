@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import os
-import queue
 import random
 import subprocess
 import tempfile
@@ -11,12 +10,13 @@ import time
 from dataclasses import dataclass
 from collections import deque
 from enum import Enum
-from typing import Callable, Generator
+from typing import Callable
 
 from app.db.models import QueueStatus
 from app.db.repository import NewQueueItem, Repository
 from app.lib.tools import format_byte_size
 from app.services.ffmpeg_pipeline import FfmpegError, FfmpegPipeline
+from app.services.hls_segmenter import HlsSegmenter
 from app.services.yt_dlp_service import ResolvedTrack, YtDlpError, YtDlpService
 
 logger = logging.getLogger(__name__)
@@ -63,129 +63,20 @@ class PlaybackState:
     shuffle_enabled: bool = False
 
 
-class SharedMp3Hub:
-    def __init__(self, stream_queue_size: int, stall_eviction_seconds: float = 30.0) -> None:
-        self._clients: dict[str, queue.Queue[bytes]] = {}
-        self._lock = threading.Lock()
-        self._stream_queue_size = stream_queue_size
-        # Monotonic timestamp of the first drop while a subscriber's queue has
-        # stayed continuously full; cleared as soon as a put succeeds without
-        # dropping, i.e. the subscriber drained at least one chunk.
-        self._full_since: dict[str, float] = {}
-        self._stall_eviction_seconds = stall_eviction_seconds
-
-    def subscribe(self) -> Generator[bytes, None, None]:
-        client_id = str(time.time_ns())
-        q: queue.Queue[bytes] = queue.Queue(maxsize=self._stream_queue_size)
-        with self._lock:
-            self._clients[client_id] = q
-        try:
-            while True:
-                chunk = q.get()
-                if chunk is None:  # type: ignore[comparison-overlap]
-                    break
-                yield chunk
-        finally:
-            with self._lock:
-                self._clients.pop(client_id, None)
-
-    def publish(self, data: bytes) -> None:
-        with self._lock:
-            clients = list(self._clients.items())
-            subscriber_count = len(clients)
-        now = time.monotonic()
-        for client_id, q in clients:
-            try:
-                q.put_nowait(data)
-                self._full_since.pop(client_id, None)
-                continue
-            except queue.Full:
-                pass
-            full_since = self._full_since.setdefault(client_id, now)
-            stalled_for = now - full_since
-            if 0 < self._stall_eviction_seconds <= stalled_for:
-                # Subscriber has not drained anything for the whole stall
-                # window: treat it as gone (disconnected client whose blocked
-                # reader thread cannot observe the disconnect). Remove it and
-                # hand it the sentinel so its generator/thread can exit and
-                # the browser-side reconnect logic takes over.
-                with self._lock:
-                    if self._clients.get(client_id) is q:
-                        self._clients.pop(client_id, None)
-                self._full_since.pop(client_id, None)
-                while True:
-                    try:
-                        q.get_nowait()  # drop stale audio, then hand over the sentinel
-                    except queue.Empty:
-                        break
-                try:
-                    q.put_nowait(None)  # type: ignore[arg-type]
-                except queue.Full:
-                    pass
-                logger.warning(
-                    "MP3 hub evicted stalled subscriber after %.1fs without draining "
-                    "(subscriber_count_before=%s queue_maxsize=%s)",
-                    stalled_for,
-                    subscriber_count,
-                    self._stream_queue_size,
-                )
-                continue
-            if full_since == now:
-                logger.warning(
-                    "MP3 hub client queue full: dropped oldest chunk to keep stream live "
-                    "(subscriber_count=%s queue_maxsize=%s chunk_bytes=%s)",
-                    subscriber_count,
-                    self._stream_queue_size,
-                    len(data),
-                )
-            else:
-                logger.debug(
-                    "MP3 hub client queue still full (stalled_for=%.1fs subscriber_count=%s)",
-                    stalled_for,
-                    subscriber_count,
-                )
-            try:
-                q.get_nowait()
-            except queue.Empty:
-                pass
-            try:
-                q.put_nowait(data)
-            except queue.Full:
-                logger.debug(
-                    "MP3 hub client queue still full after drop; skipping chunk for one client "
-                    "(queue_maxsize=%s chunk_bytes=%s)",
-                    self._stream_queue_size,
-                    len(data),
-                )
-                continue
-
-    def clear(self) -> None:
-        with self._lock:
-            clients = list(self._clients.values())
-        for q in clients:
-            while True:
-                try:
-                    q.get_nowait()
-                except queue.Empty:
-                    break
-
-    def subscriber_count(self) -> int:
-        with self._lock:
-            return len(self._clients)
-
-
 class StreamEngine:
     def __init__(
         self,
         repository: Repository,
         yt_dlp_service: YtDlpService,
         ffmpeg_pipeline: FfmpegPipeline,
-        stream_queue_size: int = 64,
-        hub_stall_eviction_seconds: float = 30.0,
         chunk_size: int = 4096,
         queue_poll_seconds: float = 1.0,
         playback_retry_count: int = 2,
         stats_log_seconds: float = 15.0,
+        hls_segment_seconds: float = 4.0,
+        hls_window_size: int = 12,
+        hls_bitrate: str = "192k",
+        hls_segmenter: HlsSegmenter | None = None,
         on_state_change: Callable[[], None] | None = None,
     ) -> None:
         self.repository = repository
@@ -196,7 +87,17 @@ class StreamEngine:
         self.playback_retry_count = max(0, playback_retry_count)
         self.stats_log_seconds = max(1.0, stats_log_seconds)
         self.state = PlaybackState()
-        self.hub = SharedMp3Hub(stream_queue_size, hub_stall_eviction_seconds)
+        self.segmenter = hls_segmenter or HlsSegmenter(
+            lambda playlist_path, segment_pattern, *, start_number: ffmpeg_pipeline.spawn_hls_packager(
+                playlist_path,
+                segment_pattern,
+                start_number=start_number,
+                segment_seconds=hls_segment_seconds,
+                hls_bitrate=hls_bitrate,
+            ),
+            segment_seconds=hls_segment_seconds,
+            window_size=hls_window_size,
+        )
         self._stop_event = threading.Event()
         self._skip_event = threading.Event()
         self._control_lock = threading.Lock()
@@ -254,6 +155,10 @@ class StreamEngine:
         if self._stats_worker:
             self._stats_worker.join(timeout=3)
         self._clear_prefetched_audio_cache()
+        try:
+            self.segmenter.close()
+        except Exception:
+            logger.exception("Failed to close HLS segmenter")
 
     def skip_current(self) -> None:
         self._request_interrupt("skip")
@@ -621,9 +526,6 @@ class StreamEngine:
             )
             self._prefetch_thread.start()
 
-    def subscribe(self) -> Generator[bytes, None, None]:
-        return self.hub.subscribe()
-
     def playback_progress(self) -> dict[str, float | int | None]:
         elapsed_seconds: float | None = None
         if self.state.mode == PlaybackMode.playing and self.state.started_at_monotonic_seconds is not None:
@@ -644,7 +546,7 @@ class StreamEngine:
 
     def runtime_stats(self) -> dict[str, float | int | str | None]:
         progress = self.playback_progress()
-        mp3_stream_listeners = self.hub.subscriber_count()
+        stream_listeners = self.segmenter.listener_count()
         with self._stats_lock:
             total_bytes_streamed = self._total_bytes_streamed
             total_chunks_streamed = self._total_chunks_streamed
@@ -658,8 +560,8 @@ class StreamEngine:
         return {
             "mode": self.state.mode.value,
             "queued_count": self.repository.queued_count(),
-            "mp3_stream_listeners": mp3_stream_listeners,
-            "total_listeners": mp3_stream_listeners,
+            "hls_stream_listeners": stream_listeners,
+            "total_listeners": stream_listeners,
             "now_playing_id": self.state.now_playing_id,
             "now_playing_title": self.state.now_playing_title,
             "elapsed_seconds": progress["elapsed_seconds"],
@@ -703,6 +605,25 @@ class StreamEngine:
             self._total_chunks_streamed += 1
             self._total_bytes_streamed += chunk_size
 
+    def _write_stream(self, chunk: bytes) -> None:
+        self.segmenter.write(chunk)
+        self._record_streamed_chunk(len(chunk))
+
+    # -------------------------------------------------------------- HLS facade
+
+    def hls_playlist_text(self) -> str:
+        return self.segmenter.playlist_text()
+
+    def hls_segment_path(self, name: str) -> str | None:
+        path = self.segmenter.segment_path(name)
+        return str(path) if path is not None else None
+
+    def note_stream_listener(self, client_key: str) -> None:
+        self.segmenter.note_listener(client_key)
+
+    def hls_segment_mime_type(self) -> str:
+        return self.segmenter.segment_mime_type()
+
     def _record_track_outcome(self, *, completed: bool = False, failed: bool = False, skipped: bool = False) -> None:
         with self._stats_lock:
             if completed:
@@ -731,11 +652,11 @@ class StreamEngine:
             else:
                 progress_label = f"{elapsed_seconds:.1f}s"
             logger.info(
-                "Engine stats mode=%s track=%s progress=%s mp3_stream_listeners=%s total_listeners=%s queued=%s cache=%s recent_cache=%s prefetched_audio=%s total_bytes=%s (%s) total_chunks=%s completed=%s skipped=%s failed=%s",
+                "Engine stats mode=%s track=%s progress=%s hls_stream_listeners=%s total_listeners=%s queued=%s cache=%s recent_cache=%s prefetched_audio=%s total_bytes=%s (%s) total_chunks=%s completed=%s skipped=%s failed=%s",
                 stats["mode"],
                 track_label,
                 progress_label,
-                stats["mp3_stream_listeners"],
+                stats["hls_stream_listeners"],
                 stats["total_listeners"],
                 stats["queued_count"],
                 stats["cached_track_count"],
@@ -798,8 +719,7 @@ class StreamEngine:
                             break
                         if stop_event.is_set() or self._stop_event.is_set() or self._skip_event.is_set():
                             return
-                        self.hub.publish(chunk)
-                        self._record_streamed_chunk(len(chunk))
+                        self._write_stream(chunk)
                 finally:
                     self._terminate_process(process)
 
@@ -843,7 +763,7 @@ class StreamEngine:
         # This is a shared live stream, so control changes should drop any
         # already-buffered audio from the previous playback position/source.
         if terminate:
-            self.hub.clear()
+            self.segmenter.purge()
         if terminate:
             self._terminate_active_process()
 
@@ -938,7 +858,7 @@ class StreamEngine:
                 chunk = self.ffmpeg_pipeline.read_chunk(process.stdout, self.chunk_size)
                 if not chunk:
                     break
-                self.hub.publish(chunk)
+                self._write_stream(chunk)
                 if time.monotonic() - idle_start >= self.queue_poll_seconds:
                     idle_start = time.monotonic()
                     if not self._user_stopped and self.repository.has_queued_items():
@@ -1077,8 +997,7 @@ class StreamEngine:
                                 self._stop_transition_silence(transition_silence_stop, transition_silence_worker)
                                 transition_silence_stop = None
                                 transition_silence_worker = None
-                            self.hub.publish(chunk)
-                            self._record_streamed_chunk(len(chunk))
+                            self._write_stream(chunk)
                             attempt_chunks_sent += 1
                             if attempt_chunks_sent == 1:
                                 self._trigger_prefetch_upcoming_tracks()
@@ -1356,8 +1275,7 @@ class StreamEngine:
                     chunk = self.ffmpeg_pipeline.read_chunk(process.stdout, self.chunk_size)
                     if not chunk:
                         break
-                    self.hub.publish(chunk)
-                    self._record_streamed_chunk(len(chunk))
+                    self._write_stream(chunk)
             finally:
                 self._set_active_processes(None, None)
                 self._terminate_process(process)

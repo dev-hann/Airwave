@@ -7,6 +7,7 @@ from app.db.models import QueueStatus
 from app.db.repository import NewQueueItem, Repository
 from app.services.ffmpeg_pipeline import FfmpegError
 from app.services.stream_engine import StreamEngine
+from tests.test_stream_engine import FakeSegmenter
 from app.services.yt_dlp_service import ResolvedTrack
 
 
@@ -112,6 +113,7 @@ def test_engine_survives_missing_ffmpeg_in_idle(tmp_path):
         repository=repo,
         yt_dlp_service=FakeYtDlp(),
         ffmpeg_pipeline=MissingFfmpegPipeline(),
+        hls_segmenter=FakeSegmenter(),
         queue_poll_seconds=0.01,
     )
     engine.start()
@@ -134,6 +136,7 @@ def test_engine_marks_track_failed_when_ffmpeg_missing(tmp_path):
         repository=repo,
         yt_dlp_service=FakeYtDlp(),
         ffmpeg_pipeline=MissingFfmpegPipeline(),
+        hls_segmenter=FakeSegmenter(),
         queue_poll_seconds=0.01,
     )
     engine._play_item(created[0].id)  # noqa: SLF001
@@ -156,6 +159,7 @@ def test_engine_marks_track_failed_on_unexpected_ffmpeg_exit(tmp_path):
         repository=repo,
         yt_dlp_service=FakeYtDlp(),
         ffmpeg_pipeline=pipeline,
+        hls_segmenter=FakeSegmenter(),
         queue_poll_seconds=0.01,
         playback_retry_count=0,
     )
@@ -181,6 +185,7 @@ def test_engine_retries_track_and_recovers(tmp_path):
         repository=repo,
         yt_dlp_service=FakeYtDlp(),
         ffmpeg_pipeline=pipeline,
+        hls_segmenter=FakeSegmenter(),
         queue_poll_seconds=0.01,
         playback_retry_count=1,
     )
@@ -215,6 +220,7 @@ def test_engine_only_advances_after_retries_exhausted(tmp_path):
         repository=repo,
         yt_dlp_service=yt_dlp,
         ffmpeg_pipeline=pipeline,
+        hls_segmenter=FakeSegmenter(),
         queue_poll_seconds=0.01,
         playback_retry_count=2,
     )

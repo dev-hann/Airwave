@@ -11,6 +11,7 @@
   "dependencies": {
     "@iconify-json/bi": "^1.2.7",
     "@nuxt/ui": "^4.3.0",
+    "hls.js": "^1.7.1",
     "tailwindcss": "^4.2.1",
     "vue": "^3.5.18",
     "vue-draggable-plus": "^0.6.1",

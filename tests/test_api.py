@@ -31,7 +31,7 @@ def test_health_and_state_endpoints(tmp_path):
         assert payload["now_playing_is_liked"] in (True, False)
         # Browser-facing stream reference is a relative path (same-origin),
         # independent of the host used to reach the server.
-        assert payload["stream_url"] == "/stream/live.mp3"
+        assert payload["stream_url"] == "/stream/live.m3u8"
 
 
 def test_state_stream_url_stays_relative_for_arbitrary_host(tmp_path):
@@ -44,7 +44,7 @@ def test_state_stream_url_stays_relative_for_arbitrary_host(tmp_path):
     with TestClient(app) as client:
         state = client.get("/api/state", headers={"Host": "100.71.158.16:8000"})
         assert state.status_code == 200
-        assert state.json()["stream_url"] == "/stream/live.mp3"
+        assert state.json()["stream_url"] == "/stream/live.m3u8"
 
 
 def test_websocket_snapshot_stream_url_is_relative(tmp_path):
@@ -58,7 +58,7 @@ def test_websocket_snapshot_stream_url_is_relative(tmp_path):
         with client.websocket_connect("/api/ws/events") as ws:
             payload = ws.receive_json()
             assert payload["type"] == "snapshot"
-            assert payload["state"]["stream_url"] == "/stream/live.mp3"
+            assert payload["state"]["stream_url"] == "/stream/live.m3u8"
 
 
 def test_frontend_shell_sets_no_cache_headers(tmp_path):

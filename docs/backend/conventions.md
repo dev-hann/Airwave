@@ -37,11 +37,11 @@ All spawns (yt-dlp, ffmpeg, ffprobe, deno) use list-argv `subprocess.Popen` — 
 
 ## Streaming code
 
-Client disconnects and shutdown are expected cases, not exceptions. Long-running/streaming code must tolerate `asyncio.CancelledError` and closed transports without log-spamming errors.
+Client disconnects and shutdown are expected cases, not exceptions. Long-running/streaming code must tolerate failures without log-spamming. Listeners fetch HLS segments over plain HTTP (no long-lived response bodies), so client-side slowness cannot leak server threads by construction.
 
 ## Preserve the shared-stream model
 
-`/stream/live.mp3` is ONE shared MP3 stream for all listeners. Never turn it into per-client transcoding or per-client offsets.
+`/stream/live.m3u8` is ONE shared HLS stream for all listeners: a single packager process, one encoding (AAC, `AIRWAVE_HLS_BITRATE`), one timeline. Never turn it into per-client transcoding or per-client offsets.
 
 ## Config
 

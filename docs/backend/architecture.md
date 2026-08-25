@@ -2,7 +2,7 @@
 
 Read this before touching `app/services/stream_engine.py`, `app/db/repository.py`, or any structural backend change.
 
-Historical note: upstream shipped a SendSpin synchronized-playback subsystem (`sendspin_service.py`, `/api/sendspin/*`, PCM paths in FfmpegPipeline). This fork removed it entirely; browsers play `/stream/live.mp3` via a plain `<audio>` element. Do not reintroduce per-client audio paths.
+Historical note: upstream shipped a SendSpin synchronized-playback subsystem (`sendspin_service.py`, `/api/sendspin/*`, PCM paths in FfmpegPipeline). This fork removed it entirely; browsers play the shared HLS stream via a plain `<audio>` element (hls.js on MSE engines, native HLS on iOS Safari). Do not reintroduce per-client audio paths. The earlier raw-MP3 endpoint `/stream/live.mp3` was replaced by `/stream/live.m3u8` + segment files in v1.3.0.
 
 ## Runtime topology
 
@@ -28,7 +28,7 @@ Queue (SQLite) ──▶ StreamEngine (worker thread)
 ```
 
 - Ports: `8000` FastAPI (API + UI + stream).
-- Browser-facing `stream_url` (API state, WS snapshots) is a **relative path** (`settings.stream_path`, default `/stream/live.mp3`). The UI and the stream share one origin, so this works no matter which host (LAN IP, VPN IP, localhost) a client used. There is no absolute-URL computation and no `AIRWAVE_PUBLIC_BASE_URL`.
+- Browser-facing `stream_url` (API state, WS snapshots) is a **relative path** (`settings.stream_path`, default `/stream/live.m3u8`). The UI and the stream share one origin, so this works no matter which host (LAN IP, VPN IP, localhost) a client used. There is no absolute-URL computation and no `AIRWAVE_PUBLIC_BASE_URL`.
 - The compose file keeps Docker `network_mode: host` for simplicity (historically required for Sonos SSDP discovery; Sonos support has since been removed).
 - StreamEngine runs in-process. Restarting the app always breaks the live stream. Horizontal scaling is impossible by design; do not add per-client transcoding.
 
@@ -36,7 +36,8 @@ Queue (SQLite) ──▶ StreamEngine (worker thread)
 
 | Module | Lines | Responsibility |
 |---|---|---|
-| `services/stream_engine.py` | ~1330 | Playback loop, prefetch, seek/shuffle/repeat, SharedMp3Hub fan-out. **God file, ~60 methods** |
+| `services/stream_engine.py` | ~1300 | Playback loop, prefetch, seek/shuffle/repeat, feeds HlsSegmenter. **God file, ~60 methods** |
+| `services/hls_segmenter.py` | ~290 | HLS packager lifecycle, sliding window, playlist rendering, listener registry |
 | `db/repository.py` | ~950 | All DB access + hand-rolled migrations. **God file** |
 | `services/binaries_service.py` | ~715 | yt-dlp/ffmpeg/ffprobe/deno download, install, update |
 | `services/playlist_service.py` | ~687 | URL ingestion, playlist preview/import, queue construction |
@@ -53,8 +54,8 @@ Queue (SQLite) ──▶ StreamEngine (worker thread)
 
 - `app/api/routes.py` is a 45-line aggregator mounting **19 domain sub-routers** under `/api`.
 - Route domains live in `app/api/{system,binaries,settings,queue,media,playback,history,playlist,playlists,ws,search,spotify}/`.
-- Shared helpers: `app/api/common/` — `models.py` (Pydantic schemas), `serializers.py` (`_serialize_*`, UI snapshot), `dependencies.py` (`_services(request)` accessor), `responses.py` (`GracefulStreamingResponse`).
-- 73 endpoints under `/api` (72 HTTP + 1 WS) plus root routes in `app/api/root.py` (`/` and `/stream/live.mp3`).
+- Shared helpers: `app/api/common/` — `models.py` (Pydantic schemas), `serializers.py` (`_serialize_*`, UI snapshot), `dependencies.py` (`_services(request)` accessor). (`responses.py` was removed with the raw-MP3 endpoint.)
+- 73 endpoints under `/api` (72 HTTP + 1 WS) plus root routes in `app/api/root.py` (`/`, `/stream/live.m3u8`, `/stream/{segment}`).
 - OpenAPI docs at `/docs` (auto-generated).
 
 ## Layering rules (verified, keep it this way)

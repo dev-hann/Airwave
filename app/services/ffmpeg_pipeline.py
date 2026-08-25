@@ -240,6 +240,21 @@ class FfmpegPipeline:
 
     def spawn_for_source(self, source_url: str, start_at_seconds: float = 0.0) -> subprocess.Popen[bytes]:
         args: list[str] = ["-re"]
+        if source_url.startswith(("http://", "https://")):
+            # Remote inputs can stall silently (TCP black hole) and kill the
+            # shared stream; make ffmpeg retry instead of hanging forever.
+            args.extend(
+                [
+                    "-reconnect",
+                    "1",
+                    "-reconnect_streamed",
+                    "1",
+                    "-reconnect_delay_max",
+                    "5",
+                    "-rw_timeout",
+                    "15000000",
+                ]
+            )
         if start_at_seconds > 0:
             args.extend(["-ss", f"{float(start_at_seconds):.3f}"])
         args.extend(
@@ -253,6 +268,13 @@ class FfmpegPipeline:
                 "44100",
                 "-ac",
                 "2",
+                # No metadata frames: output feeds a single continuous MP3
+                # pipe into the HLS packager, where mid-stream ID3/Xing tags
+                # would force the mp3 demuxer to resync.
+                "-write_xing",
+                "0",
+                "-id3v2_version",
+                "0",
                 #   "-filter:a",
                 # "loudnorm=I=-16:TP=-1.5:LRA=11",
                 "-b:a",
@@ -278,6 +300,10 @@ class FfmpegPipeline:
             "44100",
             "-ac",
             "2",
+            "-write_xing",
+            "0",
+            "-id3v2_version",
+            "0",
             "-b:a",
             self.bitrate,
             "-f",
@@ -285,6 +311,50 @@ class FfmpegPipeline:
             "pipe:1",
         ]
         return self._spawn(args)
+
+    def spawn_hls_packager(
+        self,
+        playlist_path: str,
+        segment_pattern: str,
+        *,
+        start_number: int,
+        segment_seconds: float = 4.0,
+        hls_bitrate: str = "192k",
+    ) -> subprocess.Popen[bytes]:
+        """Long-running packager: continuous MP3 on stdin → AAC MPEG-TS HLS
+        window on disk. No ``-re``: pacing comes from the engine's per-track
+        decoders; this process only re-muxes whatever arrives."""
+        args = [
+            "-f",
+            "mp3",
+            "-i",
+            "pipe:0",
+            "-c:a",
+            "aac",
+            "-b:a",
+            hls_bitrate,
+            "-ar",
+            "44100",
+            "-ac",
+            "2",
+            "-f",
+            "hls",
+            "-hls_time",
+            f"{max(0.5, float(segment_seconds)):.3f}",
+            # Keep the muxer's own playlist bounded; the segmenter window is
+            # authoritative and prunes files itself.
+            "-hls_list_size",
+            "60",
+            "-start_number",
+            str(max(0, int(start_number))),
+            "-hls_flags",
+            "append_list+omit_endlist+independent_segments",
+            "-hls_segment_filename",
+            segment_pattern,
+            playlist_path,
+        ]
+        logger.debug("Spawning HLS packager: %s", args)
+        return self._spawn(args, stdin=subprocess.PIPE)
 
     @staticmethod
     def read_chunk(stdout: IO[bytes] | None, chunk_size: int) -> bytes:

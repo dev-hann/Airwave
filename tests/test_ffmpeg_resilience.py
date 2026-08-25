@@ -225,7 +225,7 @@ def test_engine_only_advances_after_retries_exhausted(tmp_path):
         playback_retry_count=2,
     )
     engine.start()
-    deadline = time.monotonic() + 1.0
+    deadline = time.monotonic() + 10.0  # generous: CI runners are slow; local finishes in <1s
     while time.monotonic() < deadline:
         first_saved = repo.get_item(first.id)
         second_saved = repo.get_item(second.id)

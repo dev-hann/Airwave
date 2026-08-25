@@ -73,10 +73,21 @@ type = "forbidden"
 source_modules = ["app.usecases"]
 forbidden_modules = ["app.api", "app.db", "app.services", "app.main"]
 
-# NOTE: "API layer does not reach into adapters' internals" returns in phase 4
-# (repository package split); today app.api imports NewQueueItem/NewPlaylistEntry
-# from app.db.repository directly, which stays legal until then.
-# tests/test_architecture.py already enforces the domain/usecases rules.
+[[tool.importlinter.contracts]]
+name = "API uses the repository facade, never store internals"
+type = "forbidden"
+source_modules = ["app.api"]
+forbidden_modules = [
+  "app.db.repository.base",
+  "app.db.repository.repository",
+  "app.db.repository.queue_store",
+  "app.db.repository.history_store",
+  "app.db.repository.playlist_store",
+  "app.db.repository.settings_store",
+  "app.db.repository.migrations",
+]
+
+# tests/test_architecture.py additionally enforces the domain/usecases rules.
 
 [tool.setuptools.packages.find]
 where = ["."]

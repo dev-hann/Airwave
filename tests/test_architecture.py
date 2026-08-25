@@ -89,3 +89,28 @@ def test_domain_and_usecases_exist_or_absent_together() -> None:
         path = APP_ROOT / layer
         if path.exists():
             assert any(path.rglob("*.py")), f"app/{layer}/ exists but has no modules"
+
+
+_REPO_INTERNALS = (
+    "app.db.repository.base",
+    "app.db.repository.repository",
+    "app.db.repository.queue_store",
+    "app.db.repository.history_store",
+    "app.db.repository.playlist_store",
+    "app.db.repository.settings_store",
+    "app.db.repository.migrations",
+)
+
+
+def test_api_imports_repository_facade_only() -> None:
+    """Routers may use the frozen facade (app.db.repository) but must not
+    import store internals directly. (import-linter cannot express this: its
+    forbidden contract counts transitive imports, and the facade package
+    necessarily imports its own modules.)"""
+    violations: list[str] = []
+    for file in _modules_in(APP_ROOT / "api"):
+        tree = ast.parse(file.read_text(encoding="utf-8"))
+        for root in _imported_roots(tree):
+            if root in _REPO_INTERNALS:
+                violations.append(f"{file.name}: imports {root}")
+    assert not violations, "api layer must use the repository facade only: " + "; ".join(violations)

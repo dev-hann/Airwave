@@ -73,21 +73,11 @@ type = "forbidden"
 source_modules = ["app.usecases"]
 forbidden_modules = ["app.api", "app.db", "app.services", "app.main"]
 
-[[tool.importlinter.contracts]]
-name = "API uses the repository facade, never store internals"
-type = "forbidden"
-source_modules = ["app.api"]
-forbidden_modules = [
-  "app.db.repository.base",
-  "app.db.repository.repository",
-  "app.db.repository.queue_store",
-  "app.db.repository.history_store",
-  "app.db.repository.playlist_store",
-  "app.db.repository.settings_store",
-  "app.db.repository.migrations",
-]
-
-# tests/test_architecture.py additionally enforces the domain/usecases rules.
+# The api-must-use-the-repository-facade rule (routers may import
+# app.db.repository but never its internal store modules) is enforced by
+# tests/test_architecture.py instead: import-linter's forbidden contract
+# counts transitive imports, and the facade package necessarily imports
+# its own store modules.
 
 [tool.setuptools.packages.find]
 where = ["."]

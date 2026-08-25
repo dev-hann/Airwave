@@ -111,7 +111,9 @@ async def upgrade_app(request: Request, background_tasks: BackgroundTasks) -> di
 def state(request: Request) -> dict[str, Any]:
     services = _services(request)
     engine: StreamEngine = services["engine"]
-    return _serialize_state(engine, _stream_path(request), repo=services["repo"])
+    return _serialize_state(
+        engine.state_snapshot(), engine.playback_progress(), _stream_path(request), repo=services["repo"]
+    )
 
 
 @router.post("/state/like")
@@ -153,7 +155,9 @@ def like_current_song(request: Request) -> dict[str, Any]:
         "ok": True,
         "liked": True,
         "skipped_duplicates": bool(created.get("skipped_duplicates")),
-        "state": _serialize_state(engine, _stream_path(request), repo=repo),
+        "state": _serialize_state(
+            engine.state_snapshot(), engine.playback_progress(), _stream_path(request), repo=repo
+        ),
     }
 
 
@@ -184,5 +188,7 @@ def unlike_current_song(request: Request) -> dict[str, Any]:
         "ok": True,
         "unliked": True,
         "removed": removed,
-        "state": _serialize_state(engine, _stream_path(request), repo=repo),
+        "state": _serialize_state(
+            engine.state_snapshot(), engine.playback_progress(), _stream_path(request), repo=repo
+        ),
     }

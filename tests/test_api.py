@@ -75,27 +75,25 @@ def test_frontend_shell_sets_no_cache_headers(tmp_path):
 
 
 def test_serialize_state_prefers_hq_youtube_thumbnail_over_maxres():
-    engine = SimpleNamespace(
-        state=SimpleNamespace(
-            mode=SimpleNamespace(value="playing"),
-            paused=False,
-            repeat_mode=SimpleNamespace(value="off"),
-            shuffle_enabled=False,
-            now_playing_id=1,
-            now_playing_title="t",
-            now_playing_channel=None,
-            now_playing_thumbnail_url="https://i.ytimg.com/vi/abc123/maxresdefault.jpg",
-            now_playing_is_live=False,
-            now_playing_duration_seconds=60,
-        ),
-        playback_progress=lambda: {
-            "duration_seconds": 60,
-            "started_at": None,
-            "elapsed_seconds": None,
-            "progress_percent": None,
-        },
+    state = SimpleNamespace(
+        mode=SimpleNamespace(value="playing"),
+        paused=False,
+        repeat_mode=SimpleNamespace(value="off"),
+        shuffle_enabled=False,
+        now_playing_id=1,
+        now_playing_title="t",
+        now_playing_channel=None,
+        now_playing_thumbnail_url="https://i.ytimg.com/vi/abc123/maxresdefault.jpg",
+        now_playing_is_live=False,
+        now_playing_duration_seconds=60,
     )
-    out = _serialize_state(engine, "http://example.com/stream/live.m3u8")
+    progress = {
+        "duration_seconds": 60,
+        "started_at": None,
+        "elapsed_seconds": None,
+        "progress_percent": None,
+    }
+    out = _serialize_state(state, progress, "http://example.com/stream/live.m3u8")
     assert out["now_playing_thumbnail_url"] == "https://i.ytimg.com/vi/abc123/hqdefault.jpg"
     assert out["now_playing_is_liked"] is False
 

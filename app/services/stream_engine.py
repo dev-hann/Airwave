@@ -8,6 +8,7 @@ import tempfile
 import threading
 import time
 from collections import deque
+from dataclasses import replace
 from typing import Callable
 
 from app.db.models import QueueStatus
@@ -44,11 +45,12 @@ class _EngineAttemptHooks:
 
     def on_resolved_metadata(self, resolved: ResolvedTrack) -> None:
         engine = self._engine
-        if resolved.thumbnail_url:
-            engine.state.now_playing_thumbnail_url = resolved.thumbnail_url
-        if resolved.channel:
-            engine.state.now_playing_channel = resolved.channel
-        engine.state.now_playing_is_live = resolved.is_live
+        with engine._state_lock:  # noqa: SLF001 - adapter boundary
+            if resolved.thumbnail_url:
+                engine.state.now_playing_thumbnail_url = resolved.thumbnail_url
+            if resolved.channel:
+                engine.state.now_playing_channel = resolved.channel
+            engine.state.now_playing_is_live = resolved.is_live
 
     def mark_item_resolved(self, item_id: int, normalized_url: str) -> None:
         self._engine.repository.mark_item_resolved(item_id, normalized_url)
@@ -131,6 +133,9 @@ class StreamEngine:
         self.playback_retry_count = max(0, playback_retry_count)
         self.stats_log_seconds = max(1.0, stats_log_seconds)
         self.state = PlaybackState()
+        # Guards multi-field PlaybackState updates: API threads and the worker
+        # loop both write it; serializers snapshot under the same lock.
+        self._state_lock = threading.RLock()
         self._clock = clock or time.monotonic
         self._sleeper = sleeper or time.sleep
         self._attempt_runner = TrackAttemptRunner(
@@ -309,16 +314,18 @@ class StreamEngine:
         if self.state.paused:
             elapsed = self.playback_progress()["elapsed_seconds"]
             target = float(elapsed or 0.0)
-            self.state.paused = False
-            self.state.paused_elapsed_seconds = None
-            self._set_playback_offset_seconds(target)
+            with self._state_lock:
+                self.state.paused = False
+                self.state.paused_elapsed_seconds = None
+                self._set_playback_offset_seconds(target)
             self._set_pending_seek_seconds(target)
             self._notify_state_changed()
             self._request_interrupt("resume")
             return False
         elapsed = self.playback_progress()["elapsed_seconds"]
-        self.state.paused = True
-        self.state.paused_elapsed_seconds = float(elapsed or 0.0)
+        with self._state_lock:
+            self.state.paused = True
+            self.state.paused_elapsed_seconds = float(elapsed or 0.0)
         self._notify_state_changed()
         self._request_interrupt("pause")
         return True
@@ -574,10 +581,16 @@ class StreamEngine:
             )
             self._prefetch_thread.start()
 
+    def state_snapshot(self) -> PlaybackState:
+        """Consistent copy of playback state for cross-thread readers."""
+        with self._state_lock:
+            return replace(self.state)
+
     def playback_progress(self) -> dict[str, float | int | None]:
-        return _domain_playback_progress(self.state, self._clock())
+        return _domain_playback_progress(self.state_snapshot(), self._clock())
 
     def runtime_stats(self) -> dict[str, float | int | str | None]:
+        state = self.state_snapshot()
         progress = self.playback_progress()
         stream_listeners = self.segmenter.listener_count()
         with self._stats_lock:
@@ -594,8 +607,8 @@ class StreamEngine:
             "mode": self.state.mode.value,
             "queued_count": self.repository.queued_count(),
             "hls_stream_listeners": stream_listeners,
-            "now_playing_id": self.state.now_playing_id,
-            "now_playing_title": self.state.now_playing_title,
+            "now_playing_id": state.now_playing_id,
+            "now_playing_title": state.now_playing_title,
             "elapsed_seconds": progress["elapsed_seconds"],
             "duration_seconds": progress["duration_seconds"],
             "total_bytes_streamed": total_bytes_streamed,
@@ -607,30 +620,6 @@ class StreamEngine:
             "recent_cache_count": recent_cache_count,
             "prefetched_audio_count": prefetched_audio_count,
         }
-
-    def get_current_stream_url(self) -> str | None:
-        item_id = self.state.now_playing_id
-        if item_id is None:
-            return None
-
-        cached = self._get_cached_resolved_track(item_id)
-        if cached:
-            return cached.stream_url
-
-        item = self.repository.get_item(item_id)
-        if not item:
-            return None
-        return item.resolved_stream_url or item.normalized_url or item.source_url
-
-    def get_current_ffmpeg_input(self) -> str | None:
-        """Prefer prefetched on-disk audio (same as live MP3) so PCM avoids a second remote demux."""
-        item_id = self.state.now_playing_id
-        if item_id is None:
-            return None
-        prefetched = self._get_prefetched_audio_path(item_id)
-        if prefetched is not None:
-            return prefetched
-        return self.get_current_stream_url()
 
     def _record_streamed_chunk(self, chunk_size: int) -> None:
         with self._stats_lock:
@@ -774,8 +763,9 @@ class StreamEngine:
 
     def _set_playback_offset_seconds(self, seconds: float) -> None:
         offset = max(0.0, float(seconds))
-        self.state.started_at_epoch_seconds = time.time() - offset
-        self.state.started_at_monotonic_seconds = self._clock() - offset
+        with self._state_lock:
+            self.state.started_at_epoch_seconds = time.time() - offset
+            self.state.started_at_monotonic_seconds = self._clock() - offset
 
     def _set_pending_seek_seconds(self, seconds: float) -> None:
         with self._control_lock:
@@ -846,17 +836,18 @@ class StreamEngine:
                 self._sleeper(self.queue_poll_seconds)
 
     def _stream_idle_cycle(self) -> None:
-        self.state.mode = PlaybackMode.idle
-        self.state.now_playing_id = None
-        self.state.now_playing_title = None
-        self.state.now_playing_channel = None
-        self.state.now_playing_thumbnail_url = None
-        self.state.now_playing_duration_seconds = None
-        self.state.now_playing_is_live = False
-        self.state.started_at_epoch_seconds = None
-        self.state.started_at_monotonic_seconds = None
-        self.state.paused = False
-        self.state.paused_elapsed_seconds = None
+        with self._state_lock:
+            self.state.mode = PlaybackMode.idle
+            self.state.now_playing_id = None
+            self.state.now_playing_title = None
+            self.state.now_playing_channel = None
+            self.state.now_playing_thumbnail_url = None
+            self.state.now_playing_duration_seconds = None
+            self.state.now_playing_is_live = False
+            self.state.started_at_epoch_seconds = None
+            self.state.started_at_monotonic_seconds = None
+            self.state.paused = False
+            self.state.paused_elapsed_seconds = None
         self._notify_state_changed()
         try:
             process = self.ffmpeg_pipeline.spawn_silence()
@@ -890,12 +881,13 @@ class StreamEngine:
         queue_item = self.repository.get_item(item_id)
         if queue_item is None:
             return
-        self.state.mode = PlaybackMode.playing
-        self.state.now_playing_id = queue_item.id
-        self.state.now_playing_title = queue_item.title
-        self.state.now_playing_channel = queue_item.channel
-        self.state.now_playing_thumbnail_url = queue_item.thumbnail_url
-        self.state.now_playing_duration_seconds = queue_item.duration_seconds
+        with self._state_lock:
+            self.state.mode = PlaybackMode.playing
+            self.state.now_playing_id = queue_item.id
+            self.state.now_playing_title = queue_item.title
+            self.state.now_playing_channel = queue_item.channel
+            self.state.now_playing_thumbnail_url = queue_item.thumbnail_url
+            self.state.now_playing_duration_seconds = queue_item.duration_seconds
         start_offset_seconds = self._consume_pending_seek_seconds()
         self._set_playback_offset_seconds(start_offset_seconds)
         self.state.paused = False
@@ -994,9 +986,10 @@ class StreamEngine:
                     start_offset_seconds = self._consume_pending_seek_seconds(
                         default=float(self.playback_progress()["elapsed_seconds"] or 0.0)
                     )
-                    self.state.paused = False
-                    self.state.paused_elapsed_seconds = None
-                    self._set_playback_offset_seconds(start_offset_seconds)
+                    with self._state_lock:
+                        self.state.paused = False
+                        self.state.paused_elapsed_seconds = None
+                        self._set_playback_offset_seconds(start_offset_seconds)
                     self._notify_state_changed()
                     continue
                 if reason == "seek":

@@ -49,6 +49,11 @@ Related notes:
   adds another throttling layer in the background — prefer direct LAN URLs at
   home.
 - Server-side stall evidence: `docker logs airwave | grep "queue full"`.
+- Since the hub stall-eviction fix, a subscriber whose queue stays full for
+  `AIRWAVE_HUB_STALL_EVICTION_SECONDS` (default 30s) is dropped with
+  `MP3 hub evicted stalled subscriber`; its connection ends and the browser
+  reconnects at the live edge. Repeated evictions of the same client still
+  point at battery optimization / VPN throttling on that phone.
 
 
 ## Binary management

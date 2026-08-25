@@ -1,5 +1,6 @@
 from io import BytesIO
 import queue
+import time
 from threading import Thread
 
 from app.db.models import QueueStatus
@@ -114,6 +115,71 @@ def test_shared_hub_clear_drops_buffered_audio():
 
     assert hub._clients["client-a"].get_nowait() == b"fresh"  # noqa: SLF001
     assert hub._clients["client-b"].get_nowait() == b"fresh"  # noqa: SLF001
+
+
+def test_shared_hub_evicts_stalled_subscriber():
+    hub = SharedMp3Hub(stream_queue_size=4, stall_eviction_seconds=0.1)
+    gen = hub.subscribe()
+    received: list[bytes] = []
+
+    # Register the subscriber and consume exactly one chunk, then leave the
+    # generator suspended at the yield — the state a cancelled response
+    # iterator is left in when its reader thread cannot observe the
+    # disconnect (the production zombie-subscriber scenario).
+    t = Thread(target=lambda: received.append(next(gen)))
+    t.start()
+    t.join(timeout=1)
+    assert received == []
+    hub.publish(b"chunk")
+    t.join(timeout=1)
+    assert received == [b"chunk"]
+    assert hub.subscriber_count() == 1
+
+    # Publishing continues but the subscriber never drains: after the stall
+    # window it must be evicted and its generator unblocked via the sentinel.
+    deadline = time.monotonic() + 2.0
+    while hub.subscriber_count() > 0 and time.monotonic() < deadline:
+        hub.publish(b"chunk")
+        time.sleep(0.01)
+
+    assert hub.subscriber_count() == 0
+    # Sentinel ends the generator: exhausted, client entry already removed.
+    assert next(gen, "END") == "END"
+
+
+def test_shared_hub_keeps_slow_subscriber_within_stall_window():
+    hub = SharedMp3Hub(stream_queue_size=4, stall_eviction_seconds=5.0)
+    gen = hub.subscribe()
+    received: list[bytes] = []
+
+    def _consume():
+        for chunk in gen:
+            received.append(chunk)
+            time.sleep(0.02)
+
+    t = Thread(target=_consume)
+    t.start()
+    hub.publish(b"chunk0")
+    t.join(timeout=1)
+    assert received == [b"chunk0"]
+
+    # Repeated bursts beyond capacity: drops happen but the subscriber keeps
+    # draining between bursts, resetting the stall window, so it must NOT be
+    # evicted no matter how many drop events accumulate.
+    for _burst in range(3):
+        for _i in range(10):
+            hub.publish(b"chunk")
+        time.sleep(0.15)
+
+    assert hub.subscriber_count() == 1
+    assert len(received) > 10
+
+    # Unblock the consumer the same way eviction does.
+    client_q = next(iter(hub._clients.values()))  # noqa: SLF001 - focused hub coverage
+    client_q.put(None)  # type: ignore[arg-type]
+    t.join(timeout=1)
+    assert not t.is_alive()
+    assert hub.subscriber_count() == 0
 
 
 def test_stream_engine_playback_lifecycle(tmp_path):

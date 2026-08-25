@@ -64,10 +64,15 @@ class PlaybackState:
 
 
 class SharedMp3Hub:
-    def __init__(self, stream_queue_size: int) -> None:
+    def __init__(self, stream_queue_size: int, stall_eviction_seconds: float = 30.0) -> None:
         self._clients: dict[str, queue.Queue[bytes]] = {}
         self._lock = threading.Lock()
         self._stream_queue_size = stream_queue_size
+        # Monotonic timestamp of the first drop while a subscriber's queue has
+        # stayed continuously full; cleared as soon as a put succeeds without
+        # dropping, i.e. the subscriber drained at least one chunk.
+        self._full_since: dict[str, float] = {}
+        self._stall_eviction_seconds = stall_eviction_seconds
 
     def subscribe(self) -> Generator[bytes, None, None]:
         client_id = str(time.time_ns())
@@ -86,12 +91,46 @@ class SharedMp3Hub:
 
     def publish(self, data: bytes) -> None:
         with self._lock:
-            clients = list(self._clients.values())
+            clients = list(self._clients.items())
             subscriber_count = len(clients)
-        for q in clients:
+        now = time.monotonic()
+        for client_id, q in clients:
             try:
                 q.put_nowait(data)
+                self._full_since.pop(client_id, None)
+                continue
             except queue.Full:
+                pass
+            full_since = self._full_since.setdefault(client_id, now)
+            stalled_for = now - full_since
+            if 0 < self._stall_eviction_seconds <= stalled_for:
+                # Subscriber has not drained anything for the whole stall
+                # window: treat it as gone (disconnected client whose blocked
+                # reader thread cannot observe the disconnect). Remove it and
+                # hand it the sentinel so its generator/thread can exit and
+                # the browser-side reconnect logic takes over.
+                with self._lock:
+                    if self._clients.get(client_id) is q:
+                        self._clients.pop(client_id, None)
+                self._full_since.pop(client_id, None)
+                while True:
+                    try:
+                        q.get_nowait()  # drop stale audio, then hand over the sentinel
+                    except queue.Empty:
+                        break
+                try:
+                    q.put_nowait(None)  # type: ignore[arg-type]
+                except queue.Full:
+                    pass
+                logger.warning(
+                    "MP3 hub evicted stalled subscriber after %.1fs without draining "
+                    "(subscriber_count_before=%s queue_maxsize=%s)",
+                    stalled_for,
+                    subscriber_count,
+                    self._stream_queue_size,
+                )
+                continue
+            if full_since == now:
                 logger.warning(
                     "MP3 hub client queue full: dropped oldest chunk to keep stream live "
                     "(subscriber_count=%s queue_maxsize=%s chunk_bytes=%s)",
@@ -99,20 +138,26 @@ class SharedMp3Hub:
                     self._stream_queue_size,
                     len(data),
                 )
-                try:
-                    q.get_nowait()
-                except queue.Empty:
-                    pass
-                try:
-                    q.put_nowait(data)
-                except queue.Full:
-                    logger.warning(
-                        "MP3 hub client queue still full after drop; skipping chunk for one client "
-                        "(queue_maxsize=%s chunk_bytes=%s)",
-                        self._stream_queue_size,
-                        len(data),
-                    )
-                    continue
+            else:
+                logger.debug(
+                    "MP3 hub client queue still full (stalled_for=%.1fs subscriber_count=%s)",
+                    stalled_for,
+                    subscriber_count,
+                )
+            try:
+                q.get_nowait()
+            except queue.Empty:
+                pass
+            try:
+                q.put_nowait(data)
+            except queue.Full:
+                logger.debug(
+                    "MP3 hub client queue still full after drop; skipping chunk for one client "
+                    "(queue_maxsize=%s chunk_bytes=%s)",
+                    self._stream_queue_size,
+                    len(data),
+                )
+                continue
 
     def clear(self) -> None:
         with self._lock:
@@ -136,6 +181,7 @@ class StreamEngine:
         yt_dlp_service: YtDlpService,
         ffmpeg_pipeline: FfmpegPipeline,
         stream_queue_size: int = 64,
+        hub_stall_eviction_seconds: float = 30.0,
         chunk_size: int = 4096,
         queue_poll_seconds: float = 1.0,
         playback_retry_count: int = 2,
@@ -150,7 +196,7 @@ class StreamEngine:
         self.playback_retry_count = max(0, playback_retry_count)
         self.stats_log_seconds = max(1.0, stats_log_seconds)
         self.state = PlaybackState()
-        self.hub = SharedMp3Hub(stream_queue_size)
+        self.hub = SharedMp3Hub(stream_queue_size, hub_stall_eviction_seconds)
         self._stop_event = threading.Event()
         self._skip_event = threading.Event()
         self._control_lock = threading.Lock()

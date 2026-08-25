@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     # Per-listener buffer depth (~6.5s at 320kbps with 4KB chunks). Larger values
     # let slow/mobile consumers survive short stalls without dropping chunks.
     stream_queue_size: int = 64
+    # How long a subscriber's hub queue may stay continuously full (subscriber
+    # draining nothing) before it is evicted: its blocked reader thread cannot
+    # observe client disconnects, so eviction frees the leaked thread/queue and
+    # lets the browser reconnect at the live edge. 0 disables eviction.
+    hub_stall_eviction_seconds: float = Field(default=30.0, ge=0.0, le=600.0)
     queue_poll_seconds: float = Field(default=1.0, ge=0.1, le=10.0)
     stream_stats_log_seconds: float = Field(default=15.0, ge=1.0, le=300.0)
     history_limit: int = 50

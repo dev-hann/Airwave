@@ -93,6 +93,7 @@ def create_app(settings: Settings | None = None, start_engine: bool = True) -> F
         ffmpeg_pipeline=ffmpeg_pipeline,
         chunk_size=settings.chunk_size,
         stream_queue_size=settings.stream_queue_size,
+        hub_stall_eviction_seconds=settings.hub_stall_eviction_seconds,
         queue_poll_seconds=settings.queue_poll_seconds,
         stats_log_seconds=settings.stream_stats_log_seconds,
         on_state_change=notify_ui_state_changed,

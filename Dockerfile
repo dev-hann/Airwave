@@ -84,7 +84,7 @@ FROM node:22-slim
 ARG APP_VERSION
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates \
+    curl ca-certificates passwd \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -m -u 1000 airwave && \
     mkdir -p /app/bin /app/data && \

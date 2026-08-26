@@ -363,6 +363,19 @@ export function useLocalPlayback(audioRef: Ref<HTMLAudioElement | null>) {
     },
   );
 
+  // The server purges the HLS window on a seek (new timeline at the new
+  // offset). The browser's buffered audio stalls once the old buffer drains
+  // — rejoin at the live edge so playback continues at the seek target.
+  watch(
+    () => playbackStore.seekEpoch,
+    async (epoch) => {
+      if (!epoch) return;
+      if (!audioRef.value) return;
+      if (!playbackStore.playbackState.stream_url) return;
+      await rejoinLiveStream("seek");
+    },
+  );
+
   let detachAudioStateListeners: () => void = () => {};
 
   watch(

@@ -68,6 +68,50 @@ describe("playback store — optimistic transport", () => {
     expect(postJson).toHaveBeenCalledWith("/api/playback/seek", { percent: 50 });
   });
 
+  it("successful seek (playing) bumps seekEpoch for the audio rejoin", async () => {
+    const store = usePlaybackStore();
+    store.applyPlaybackState(baseState());
+    const before = store.seekEpoch;
+
+    await store.seekToPercent(50);
+
+    expect(store.seekEpoch).toBe(before + 1);
+  });
+
+  it("ok:false seek does NOT bump seekEpoch", async () => {
+    vi.mocked(postJson).mockResolvedValueOnce({ ok: false });
+    const store = usePlaybackStore();
+    store.applyPlaybackState(baseState());
+    const before = store.seekEpoch;
+
+    await store.seekToPercent(50);
+
+    expect(store.seekEpoch).toBe(before);
+  });
+
+  it("paused seek defers the epoch bump until resume snapshot arrives", async () => {
+    const store = usePlaybackStore();
+    store.applyPlaybackState(baseState({ paused: true }));
+    const before = store.seekEpoch;
+
+    await store.seekToPercent(50);
+    expect(store.seekEpoch).toBe(before); // parked while paused
+
+    // Resume snapshot: paused true → false flushes the pending seek.
+    store.applyPlaybackState(baseState({ paused: false, elapsed_seconds: 50, progress_percent: 50 }));
+    expect(store.seekEpoch).toBe(before + 1);
+  });
+
+  it("pause→resume without a seek does not bump the epoch", async () => {
+    const store = usePlaybackStore();
+    store.applyPlaybackState(baseState({ paused: true }));
+    const before = store.seekEpoch;
+
+    store.applyPlaybackState(baseState({ paused: false }));
+
+    expect(store.seekEpoch).toBe(before);
+  });
+
   it("togglePause flips paused optimistically (playing → pause endpoint)", async () => {
     const store = usePlaybackStore();
     store.applyPlaybackState(baseState());

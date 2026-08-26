@@ -39,9 +39,31 @@ export const usePlaybackStore = defineStore("playback", () => {
 
   const playbackState = ref<PlaybackStateContract>(initialPlaybackState());
 
+  /**
+   * Increments whenever a seek is accepted by the server. The audio element
+   * watches this and rejoins the live edge: the server purges the HLS window
+   * on a seek (new timeline), so the browser's buffered audio stalls after
+   * draining — a rejoin is the only way playback continues at the new
+   * position without a manual refresh.
+   */
+  const seekEpoch = ref(0);
+  let seekPendingWhilePaused = false;
+
+  function consumeSeekPending(): boolean {
+    const pending = seekPendingWhilePaused;
+    seekPendingWhilePaused = false;
+    return pending;
+  }
+
   function applyPlaybackState(nextState: PlaybackStateContract | null | undefined): void {
     if (!nextState || typeof nextState !== "object") return;
+    const wasPaused = playbackState.value.paused;
     playbackState.value = nextState;
+    // A seek issued while paused parks server-side; it commits on resume —
+    // surface it as a seek event then so the audio element rejoins too.
+    if (wasPaused && !nextState.paused && consumeSeekPending()) {
+      seekEpoch.value += 1;
+    }
   }
 
   function startPlaybackTicker(): void {
@@ -175,6 +197,14 @@ export const usePlaybackStore = defineStore("playback", () => {
       // surface it instead of silently doing nothing.
       if (result && result.ok === false) {
         notifications.notifyError("Could not seek", new Error("Track is not seekable right now"));
+        return;
+      }
+      if (playbackState.value.paused) {
+        // The engine parks the target server-side; emit the seek event when
+        // playback resumes (applyPlaybackState handles the transition).
+        seekPendingWhilePaused = true;
+      } else {
+        seekEpoch.value += 1;
       }
     } catch (error) {
       notifications.notifyError("Could not seek track", error);
@@ -237,6 +267,7 @@ export const usePlaybackStore = defineStore("playback", () => {
     setRepeatMode,
     setShuffleEnabled,
     seekToPercent,
+    seekEpoch,
     likeCurrentSong,
     unlikeCurrentSong,
     toggleLikeCurrentSong,

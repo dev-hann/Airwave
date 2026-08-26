@@ -188,7 +188,24 @@ test.describe("UI shell", () => {
           timeout: AGAINST_PROD ? 90_000 : 30_000,
         })
         .toBeGreaterThanOrEqual(duration * 0.7);
-    }, 180_000);
+
+      // THE REGRESSION THIS TEST EXISTS FOR: after a seek the browser audio
+      // must keep CONSUMING the new timeline (server book moving alone is
+      // not enough — the old buffer stalls once drained). Sample the
+      // element's currentTime twice; strict progress required.
+      const sample = () =>
+        page.evaluate(() => {
+          const el = document.querySelector("audio");
+          return el ? el.currentTime : -1;
+        });
+      await expect
+        .poll(sample, { timeout: AGAINST_PROD ? 60_000 : 30_000 })
+        .toBeGreaterThan(0);
+      const firstSample = await sample();
+      await page.waitForTimeout(4_000);
+      const secondSample = await sample();
+      expect(secondSample).toBeGreaterThan(firstSample);
+    }, 240_000);
   });
 
   test.describe("playback (real ffmpeg)", () => {

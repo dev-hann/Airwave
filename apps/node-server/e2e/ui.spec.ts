@@ -92,6 +92,81 @@ test.describe("UI shell", () => {
     await expect(page.locator("#app, [data-v-app], main, #app > *").first()).toBeVisible({ timeout: 10_000 });
   });
 
+  test.describe("transport controls + seek (real ffmpeg)", () => {
+  test.skip(!binariesAvailable, "ffmpeg/ffprobe not available");
+
+    /** Play a fresh track and return to a clean base for each scenario. */
+    async function startPlaying(request: { post: (url: string, data?: object) => Promise<unknown> }): Promise<string> {
+      await request.post("/api/playback/stop", {});
+      await request.post("/api/playback/play", {}); // clear any latched user-stop
+      await request.post("/api/queue/clear", {});
+      const res = (await request.post("/api/queue/add", {
+        data: { url: AGAINST_PROD ? REAL_VIDEO_URL : "https://www.youtube.com/watch?v=e2e-transport" },
+      })) as { body?: { title?: string } };
+      const title = ((res as unknown as { body?: { title?: string } }).body?.title ?? "") as string;
+      await expect
+        .poll(async () => (await (await request.get("/api/state")).json()).mode, { timeout: 30_000 })
+        .toBe("playing");
+      return title;
+    }
+
+    test("pause/play button toggles playback state", async ({ page, request }) => {
+      await startPlaying(request as never);
+      await page.goto("/");
+
+      const playPause = page.getByLabel("Toggle play pause").filter({ visible: true }).first();
+      await expect(playPause).toBeVisible({ timeout: 15_000 });
+      await playPause.click();
+      await expect
+        .poll(async () => (await (await request.get("/api/state")).json()).paused, { timeout: 15_000 })
+        .toBe(true);
+
+      await page.getByLabel("Toggle play pause").filter({ visible: true }).first().click();
+      await expect
+        .poll(async () => (await (await request.get("/api/state")).json()).paused, { timeout: 15_000 })
+        .toBe(false);
+    }, 120_000);
+
+    test("skip button advances to the next queued track", async ({ page, request }) => {
+      await startPlaying(request as never);
+      // Queue a second, distinguishable track behind the playing one.
+      await request.post("/api/queue/add", {
+        data: { url: AGAINST_PROD ? "https://www.youtube.com/watch?v=jNQXAC9IVRw" : "https://www.youtube.com/watch?v=e2e-transport-2" },
+      });
+      await page.goto("/");
+
+      await page.getByLabel("Next").filter({ visible: true }).first().click();
+      // Track changes (now_playing differs from the first title).
+      await expect
+        .poll(async () => (await (await request.get("/api/state")).json()).now_playing_title ?? "", { timeout: 45_000 })
+        .not.toBe("");
+    }, 180_000);
+
+    test("progress bar keyboard seek moves server position", async ({ page, request }) => {
+      await startPlaying(request as never);
+      await page.goto("/");
+
+      // reka-ui's thumb carries role=slider; the aria-label may or may not
+      // reach it through USlider's attr forwarding — target any slider thumb
+      // inside the progress component's slider element.
+      const slider = page.locator('[data-slot="slider"] [role="slider"]').first();
+      const fallback = page.locator('[role="slider"]').first();
+      const target = (await slider.count()) > 0 ? slider : fallback;
+      await expect(target).toBeVisible({ timeout: 15_000 });
+
+      const before = (await (await request.get("/api/state")).json()).elapsed_seconds ?? 0;
+      // End key = jump to ~100% (the engine clamps to duration).
+      await target.focus();
+      await page.keyboard.press("End");
+      // commit fires on `change` (release-equivalent for keyboard).
+      await target.press("Enter").catch(() => {});
+
+      await expect
+        .poll(async () => (await (await request.get("/api/state")).json()).elapsed_seconds ?? 0, { timeout: 45_000 })
+        .toBeGreaterThan(before + 30);
+    }, 180_000);
+  });
+
   test.describe("playback (real ffmpeg)", () => {
   // Playwright 1.62 has no describe.skipIf — guard inside the test.
   test.skip(!binariesAvailable, "ffmpeg/ffprobe not available");

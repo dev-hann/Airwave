@@ -47,7 +47,12 @@ export function serializeState(
     paused: state.paused,
     repeat_mode: state.repeatMode,
     shuffle_enabled: state.shuffleEnabled,
-    can_seek: Boolean(state.nowPlayingDurationSeconds && state.nowPlayingDurationSeconds > 0),
+    can_seek: Boolean(
+      state.nowPlayingDurationSeconds &&
+        state.nowPlayingDurationSeconds > 0 &&
+        // Live sources have no meaningful position — seeking (-ss) is undefined.
+        !state.nowPlayingIsLive,
+    ),
     now_playing_id: state.nowPlayingId,
     now_playing_title: state.nowPlayingTitle,
     now_playing_channel: state.nowPlayingChannel,

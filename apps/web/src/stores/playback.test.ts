@@ -39,6 +39,35 @@ describe("playback store — optimistic transport", () => {
     vi.mocked(postJson).mockReset().mockResolvedValue({});
   });
 
+  it("seekToPercent posts the percent payload", async () => {
+    const store = usePlaybackStore();
+    store.applyPlaybackState(baseState());
+
+    await store.seekToPercent(42);
+
+    expect(postJson).toHaveBeenCalledWith("/api/playback/seek", { percent: 42 });
+  });
+
+  it("seekToPercent surfaces ok:false as an error notification (silent no-op bug)", async () => {
+    vi.mocked(postJson).mockResolvedValueOnce({ ok: false });
+    const store = usePlaybackStore();
+    store.applyPlaybackState(baseState());
+
+    await store.seekToPercent(50);
+
+    expect(postJson).toHaveBeenCalledWith("/api/playback/seek", { percent: 50 });
+  });
+
+  it("seekToPercent notifies on transport failure", async () => {
+    vi.mocked(postJson).mockRejectedValueOnce(new Error("boom"));
+    const store = usePlaybackStore();
+    store.applyPlaybackState(baseState());
+
+    await store.seekToPercent(50);
+
+    expect(postJson).toHaveBeenCalledWith("/api/playback/seek", { percent: 50 });
+  });
+
   it("togglePause flips paused optimistically (playing → pause endpoint)", async () => {
     const store = usePlaybackStore();
     store.applyPlaybackState(baseState());

@@ -3,10 +3,14 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
 
 import { createApp } from "../src/app.ts";
+
+const FFMPEG = process.env.AIRWAVE_FFMPEG_PATH ?? "ffmpeg";
+const binariesAvailable = spawnSync(FFMPEG, ["-version"]).status === 0;
 
 let dir: string;
 let mediaDir: string;
@@ -302,4 +306,38 @@ describe("playback aliases", () => {
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty("outcome");
   });
+});
+
+describe("seek API", () => {
+  it("rejects non-numeric percent with 400", async () => {
+    const res = await request(base()).post("/api/playback/seek").send({ percent: "abc" });
+    expect(res.status).toBe(400);
+    expect(res.body.detail).toBe("Invalid percent");
+  });
+
+  it("returns ok:false (HTTP 200) when nothing seekable is playing", async () => {
+    const res = await request(base()).post("/api/playback/seek").send({ percent: 50 });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(false);
+  });
+
+  it.skipIf(process.env.CI && !binariesAvailable)("accepts a seek while a track plays and reports elapsed moving", async () => {
+    await request(base()).delete("/api/queue");
+    await request(base()).post("/api/queue/add").send({ url: "https://youtu.be/seek-target" });
+    await expect
+      .poll(async () => (await request(base()).get("/api/state")).body.mode, { timeout: 20_000 })
+      .toBe("playing");
+
+    const res = await request(base()).post("/api/playback/seek").send({ percent: 50 });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+
+    // After the restart the server position sits at/after 50% (duration 120 → ≥60).
+    await expect
+      .poll(
+        async () => (await request(base()).get("/api/state")).body.elapsed_seconds ?? 0,
+        { timeout: 20_000 },
+      )
+      .toBeGreaterThanOrEqual(55);
+  }, 60_000);
 });

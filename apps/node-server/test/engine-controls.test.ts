@@ -47,6 +47,7 @@ const fakeProc = (payload: Buffer, returncode = 0) => {
     write: (_d: Buffer) => {},
     end: () => {},
     kill: async () => {},
+    spawnFailure: () => null,
   };
   return proc;
 };
@@ -132,6 +133,78 @@ describe("StreamEngine controls", () => {
     await engine.playItemForTest(created[0]!.id);
     expect(pipeline.spawnUrls.some((s) => s.offset === 30)).toBe(true);
   });
+
+  it("seekToPercent rejects idle, duration-less, and live tracks", async () => {
+    const engine = makeEngine(new FakePipeline());
+    // idle → false
+    expect(engine.seekToPercent(50)).toBe(false);
+    // playing but no duration → false
+    engine.state.mode = "playing";
+    engine.state.nowPlayingDurationSeconds = null;
+    expect(engine.seekToPercent(50)).toBe(false);
+    // zero duration → false
+    engine.state.nowPlayingDurationSeconds = 0;
+    expect(engine.seekToPercent(50)).toBe(false);
+    // live with duration → false (live guard)
+    engine.state.nowPlayingDurationSeconds = 300;
+    engine.state.nowPlayingIsLive = true;
+    expect(engine.seekToPercent(50)).toBe(false);
+    engine.state.nowPlayingIsLive = false;
+    expect(engine.seekToPercent(50)).toBe(true);
+  });
+
+  it("seekToPercent clamps out-of-range values", () => {
+    const engine = makeEngine(new FakePipeline());
+    engine.state.mode = "playing";
+    engine.state.nowPlayingDurationSeconds = 200;
+    expect(engine.seekToPercent(150)).toBe(true);
+    expect(engine.seekToPercent(-20)).toBe(true);
+  });
+
+  it("mid-track seek interrupts and restarts ffmpeg at the offset", async () => {
+    const created = enqueueOne();
+    repo.dequeueNext();
+    const pipeline = new FakePipeline();
+    const engine = makeEngine(pipeline);
+    // runAttempt writes to the segmenter directly — hook there to fire the
+    // seek once the first chunk flows (mid-track conditions).
+    const seg = (engine as unknown as { segmenter: { write(chunk: Buffer): void } }).segmenter;
+    const originalWrite = seg.write.bind(seg);
+    seg.write = (chunk: Buffer) => {
+      originalWrite(chunk);
+      if (chunk.length > 0 && pipeline.spawnUrls.length === 1) {
+        engine.seekToPercent(50); // 120s * 50% = 60s
+      }
+    };
+    await engine.playItemForTest(created[0]!.id);
+    // Attempt must have restarted with -ss 60 after the seek interrupt.
+    expect(pipeline.spawnUrls.some((s) => s.offset === 60)).toBe(true);
+    expect(repo.getItem(created[0]!.id)!.status).not.toBe("failed");
+  }, 30_000);
+
+  it("paused seek parks the target and resumes at the offset", async () => {
+    const created = enqueueOne();
+    repo.dequeueNext();
+    const pipeline = new FakePipeline();
+    const engine = makeEngine(pipeline);
+    engine.state.mode = "playing";
+    engine.state.nowPlayingDurationSeconds = 120;
+    engine.state.startedAtMonotonicSeconds = engine.clockNow() - 10;
+    engine.togglePause(); // pauses + parks elapsed=10
+    expect(engine.state.paused).toBe(true);
+
+    // Seek while paused: engine accepts and stores the target.
+    expect(engine.seekToPercent(50)).toBe(true);
+
+    // Resume through the real path: unpause drives the engine's own
+    // seek+resume branch (playItem's paused/seek handling).
+    engine.resumePlayback(); // clears pause via togglePause branch
+    expect(engine.state.paused).toBe(false);
+    // The parked seek survives in pendingSeekSeconds; restarting the item
+    // picks it up as the attempt offset.
+    await engine.playItemForTest(created[0]!.id);
+    expect(pipeline.spawnUrls.some((s) => s.offset === 60)).toBe(true);
+  }, 30_000);
 
   it("repeat mode rejects unknown values", () => {
     const engine = makeEngine(new FakePipeline());

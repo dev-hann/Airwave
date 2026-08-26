@@ -426,7 +426,9 @@ export class StreamEngine {
       this.state.paused = false;
       this.state.pausedElapsedSeconds = null;
       this.setPlaybackOffset(target);
-      this.pendingSeekSeconds = target;
+      // A seek issued while paused parked its own target — resume THERE,
+      // not at the pre-seek paused elapsed.
+      if (this.pendingSeekSeconds === null) this.pendingSeekSeconds = target;
       this.notifyStateChanged();
       this.requestInterrupt("resume");
       return false;
@@ -441,6 +443,9 @@ export class StreamEngine {
   seekToPercent(percent: number): boolean {
     const duration = this.state.nowPlayingDurationSeconds;
     if (!duration || duration <= 0) return false;
+    // Live sources have no meaningful position (-ss on a live input is
+    // undefined behavior); the UI hides the slider via can_seek too.
+    if (this.state.nowPlayingIsLive) return false;
     const clamped = Math.min(100, Math.max(0, percent));
     return this.seekToSeconds((clamped / 100) * duration);
   }
@@ -730,8 +735,6 @@ export class StreamEngine {
 
       let chunksSent = 0;
       let bytesSent = 0;
-      let firstChunk = true;
-      const chunkSize = this.chunkSize;
       const stdout = process.stdout;
 
       // Event-driven chunk queue: producer (data events) runs on the event
@@ -776,8 +779,6 @@ export class StreamEngine {
           this.segmenter.write(buffer);
           chunksSent += 1;
           bytesSent += buffer.length;
-          void firstChunk;
-          void chunkSize;
         }
       } finally {
         stdout.off("data", onData);
@@ -845,6 +846,14 @@ export class StreamEngine {
   }
 
   /** @internal test hook */
+  /** @internal test hook */
+  async resumePlaybackForTest(): Promise<void> {
+    // Resume from paused through the real code path, driving one item.
+    this.resumePlayback();
+    if (this.state.paused) return;
+    await this.playItemForTest(this.repo.listQueue()[0]?.id ?? 0);
+  }
+
   hooksForTest(): { writeChunk: (chunk: Buffer) => void } {
     return this.attemptHooks;
   }

@@ -11,6 +11,7 @@
       class="w-full cursor-pointer"
       aria-label="Seek current track"
       @update:model-value="onSeekInput"
+      @change="onSeekCommit"
     />
     <div class="mt-2 flex w-full items-center justify-between text-xs text-muted">
       <span>{{ formatDuration(elapsedSeconds) }}</span>
@@ -21,9 +22,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from "vue";
-import { debounce } from "../utils/debounce";
 import { formatDuration } from "../utils/duration";
-
 const props = withDefaults(
   defineProps<{
     progressPercent?: number | null;
@@ -43,11 +42,12 @@ const props = withDefaults(
 
 const emit = defineEmits<{ seek: [percent: number] }>();
 
-const SEEK_DEBOUNCE_MS = 150;
-const SEEK_IDLE_MS = 400;
+// Commit-on-release semantics: dragging only moves the local preview; the
+// seek request fires ONCE when the interaction finishes (USlider `change`
+// event). This avoids an interrupt+ffmpeg-restart storm per 150ms of drag.
 const isSeeking = ref(false);
 const localSeekPercent = ref(0);
-let seekIdleTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingPercent: number | null = null;
 
 const seekSliderValue = computed(() =>
   isSeeking.value ? localSeekPercent.value : (props.progressPercent ?? 0)
@@ -57,20 +57,40 @@ function onSeekInput(value: number | number[] | null | undefined): void {
   const percent = Array.isArray(value) ? value[0] : value;
   const num = Number(percent ?? 0);
   if (!Number.isFinite(num)) return;
-  const clamped = Math.max(0, Math.min(100, num));
   isSeeking.value = true;
-  localSeekPercent.value = clamped;
-  if (seekIdleTimer) clearTimeout(seekIdleTimer);
-  seekIdleTimer = setTimeout(() => {
-    isSeeking.value = false;
-    seekIdleTimer = null;
-  }, SEEK_IDLE_MS);
-  debouncedSeek(clamped);
+  localSeekPercent.value = Math.max(0, Math.min(100, num));
 }
 
-const debouncedSeek = debounce((percent: number) => emit("seek", percent), SEEK_DEBOUNCE_MS);
+function onSeekCommit(_event: Event): void {
+  // USlider emits a DOM `change` Event on release; the pending value was
+  // captured by the last onSeekInput.
+  if (pendingPercent === null) return;
+  const target = pendingPercent;
+  emit("seek", target);
+}
+
+// Release the drag preview once the server's position reaches (or passes)
+// the committed target — no fixed timer that would rubber-band back to the
+// pre-seek position while ffmpeg restarts.
+const wasSeeking = ref(false);
+const checkRelease = computed(() => {
+  if (isSeeking.value && pendingPercent !== null) {
+    wasSeeking.value = true;
+    const server = props.progressPercent ?? 0;
+    // Within ~2% of the target, or overshot it: the snapshot landed.
+    if (Math.abs(server - pendingPercent) <= 2 || server > pendingPercent) {
+      isSeeking.value = false;
+      pendingPercent = null;
+    }
+  } else if (wasSeeking.value && pendingPercent === null) {
+    wasSeeking.value = false;
+  }
+  return null;
+});
+void checkRelease;
 
 onBeforeUnmount(() => {
-  if (seekIdleTimer) clearTimeout(seekIdleTimer);
+  isSeeking.value = false;
+  pendingPercent = null;
 });
 </script>

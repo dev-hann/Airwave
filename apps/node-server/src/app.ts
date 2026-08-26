@@ -165,6 +165,7 @@ export function createApp(options: AppOptions) {
       return;
     }
     const ok = engine.seekToPercent(percent);
+    if (ok) publish();
     res.json({ ok });
   });
 

@@ -170,7 +170,12 @@ export const usePlaybackStore = defineStore("playback", () => {
 
   async function seekToPercent(percent: number): Promise<void> {
     try {
-      await postJson("/api/playback/seek", { percent });
+      const result = await postJson<{ ok?: boolean }>("/api/playback/seek", { percent });
+      // HTTP 200 with ok:false = engine refused (idle, no duration, live) —
+      // surface it instead of silently doing nothing.
+      if (result && result.ok === false) {
+        notifications.notifyError("Could not seek", new Error("Track is not seekable right now"));
+      }
     } catch (error) {
       notifications.notifyError("Could not seek track", error);
     }

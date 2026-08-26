@@ -12,6 +12,7 @@
       aria-label="Seek current track"
       @update:model-value="onSeekInput"
       @change="onSeekCommit"
+      @keydown="onSeekKeydown"
     />
     <div class="mt-2 flex w-full items-center justify-between text-xs text-muted">
       <span>{{ formatDuration(elapsedSeconds) }}</span>
@@ -57,16 +58,42 @@ function onSeekInput(value: number | number[] | null | undefined): void {
   const percent = Array.isArray(value) ? value[0] : value;
   const num = Number(percent ?? 0);
   if (!Number.isFinite(num)) return;
+  const clamped = Math.max(0, Math.min(100, num));
   isSeeking.value = true;
-  localSeekPercent.value = Math.max(0, Math.min(100, num));
+  localSeekPercent.value = clamped;
+  // Park the value for the commit-on-release path — without this the
+  // onSeekCommit guard always returns early and NO interaction ever seeks.
+  pendingPercent = clamped;
+}
+
+// reka-ui emits valueCommit BEFORE update:modelValue on keyboard input, so
+// the generic commit handler sees a stale preview. Keyboard keys commit
+// directly from the event's resulting value on the NEXT tick.
+function onSeekKeydown(event: KeyboardEvent): void {
+  const keys = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"];
+  if (!keys.includes(event.key)) return;
+  // Let reka update first, then read the committed thumb position.
+  setTimeout(() => {
+    const thumb = (event.currentTarget as HTMLElement | null)?.querySelector?.('[role="slider"]');
+    const raw = Number((thumb as HTMLElement | null)?.getAttribute?.("aria-valuenow"));
+    if (!Number.isFinite(raw)) return;
+    const clamped = Math.max(0, Math.min(100, raw));
+    isSeeking.value = true;
+    localSeekPercent.value = clamped;
+    pendingPercent = clamped;
+    emit("seek", clamped);
+  }, 0);
 }
 
 function onSeekCommit(_event: Event): void {
-  // USlider emits a DOM `change` Event on release; the pending value was
-  // captured by the last onSeekInput.
-  if (pendingPercent === null) return;
-  const target = pendingPercent;
-  emit("seek", target);
+  // USlider forwards reka-ui's valueCommit as a `change` Event; its
+  // target.value is unreliable (Event init drops target). Keyboard commits
+  // can arrive BEFORE the corresponding update:modelValue tick (reka emits
+  // valueCommit first), so fall back to the preview value.
+  const target = pendingPercent ?? localSeekPercent.value;
+  if (isSeeking.value || target > 0) {
+    emit("seek", Math.max(0, Math.min(100, target)));
+  }
 }
 
 // Release the drag preview once the server's position reaches (or passes)

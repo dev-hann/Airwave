@@ -23,6 +23,8 @@ export interface SpawnedProcess {
   write(data: Buffer): void;
   end(): void;
   kill(): Promise<void>;
+  /** Set when the binary could not spawn (ENOENT) — check after first read. */
+  spawnFailure(): Error | null;
 }
 
 const wrap = (process: import("node:child_process").ChildProcess): SpawnedProcess => {
@@ -31,6 +33,13 @@ const wrap = (process: import("node:child_process").ChildProcess): SpawnedProces
     // Bounded capture: keep the last 64KB for failure diagnostics.
     stderrChunks.push(chunk);
     if (stderrChunks.reduce((n, c) => n + c.length, 0) > 64 * 1024) stderrChunks.shift();
+  });
+  let spawnError: Error | null = null;
+  process.once("error", (error: Error) => {
+    // spawn ENOENT etc. surfaces here, not as a throw — record it so
+    // callers without the binary fail gracefully instead of crashing.
+    spawnError = error;
+    process.emit("close", null as never);
   });
   return {
     process,
@@ -41,6 +50,7 @@ const wrap = (process: import("node:child_process").ChildProcess): SpawnedProces
         if (process.exitCode !== null) resolve(process.exitCode);
         else process.once("exit", (code) => resolve(code));
       }),
+    spawnFailure: () => spawnError,
     write: (data: Buffer) => process.stdin?.write(data),
     end: () => process.stdin?.end(),
     kill: () =>

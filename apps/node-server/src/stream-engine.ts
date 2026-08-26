@@ -540,6 +540,12 @@ export class StreamEngine {
   private spawnSilenceOrNull(): SpawnedProcess | null {
     try {
       const silence = this.ffmpeg.spawnSilence();
+      if (silence.spawnFailure()) {
+        // Binary missing/unspawnable: surface once, degrade to polling silence.
+        console.error("Failed to spawn silence:", silence.spawnFailure()?.message);
+        void silence.kill();
+        return null;
+      }
       this.silenceProcess = silence;
       return silence;
     } catch (error) {

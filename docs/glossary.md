@@ -41,7 +41,7 @@ Canonical vocabulary for code, docs, and discussions. Use these terms exactly; w
 - **Repository (facade)** — the only DB access surface (`app/db/repository/`); routes never touch SQLAlchemy directly.
 - **Ports/Protocols** — engine collaborator interfaces (Transcoder, StreamSink, TrackSource, PlaybackStore); satisfaction enforced by `tests/test_ports.py`.
 - **Binaries** — yt-dlp / ffmpeg / ffprobe / deno managed by `BinariesService` into `bin/` (Docker images bake them at build time).
-- **Contract types** — `packages/shared/src/generated/schema.d.ts`, generated from the OpenAPI dump (`npm run contracts:gen`); CI fails on drift.
+- **Contract types** — the zod schemas in `packages/shared/src/contracts.ts`; server and web import the same module (no codegen).
 
 ## Ops
 

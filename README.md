@@ -3,8 +3,8 @@
 
 ![GitHub stars](https://img.shields.io/github/stars/dev-hann/Airwave?style=social)
 ![GitHub forks](https://img.shields.io/github/forks/dev-hann/Airwave?style=social)
-![Python](https://img.shields.io/badge/python-3.12+-blue.svg)
-![FastAPI](https://img.shields.io/badge/FastAPI-API-009688.svg)
+![Python](https://img.shields.io/badge/node-22-blue.svg)
+![Express](https://img.shields.io/badge/Express-API-009688.svg)
 [![Vue](https://img.shields.io/badge/Vue-3-4FC08D?logo=vuedotjs&logoColor=white)](https://vuejs.org/)
 
 > 🎧 **Turn any link into a shared listening experience**
@@ -29,7 +29,7 @@ Open → [http://localhost:8000](http://localhost:8000)
 
 Paste a link → music starts → share the URL 🎉
 
-API reference (OpenAPI): [http://localhost:8000/docs](http://localhost:8000/docs)
+API reference (OpenAPI): [http://localhostthe API surface in `apps/node-server/src/app.ts`](http://localhostthe API surface in `apps/node-server/src/app.ts`)
 
 ---
 
@@ -197,7 +197,7 @@ AIRWAVE_PLAYLIST_SYNC_MAX_CONCURRENT=2
 
 ## 🧱 Tech Stack
 
-* FastAPI
+* Express
 * Vue 3
 * yt-dlp
 * ffmpeg
@@ -207,7 +207,7 @@ AIRWAVE_PLAYLIST_SYNC_MAX_CONCURRENT=2
 
 ## 🏗 Architecture (simplified)
 
-* FastAPI API — HTTP + websocket endpoints, app state wiring
+* Express API — HTTP + websocket endpoints, app state wiring
 * StreamEngine — playback worker & prefetch
 * FfmpegPipeline — transcoding & ffprobe probing
 * MediaSourceResolver — local files & direct media URLs

@@ -1,6 +1,6 @@
 # Backend Architecture
 
-Read this before touching `app/services/stream_engine.py`, `app/db/repository/`, `app/domain/`, `app/usecases/`, or any structural backend change. Layer rules for the domain/usecase layers live in `docs/backend/clean-architecture.md` (lint- and test-enforced).
+Read this before touching `apps/node-server/src/`, `packages/domain`, `packages/usecases`, `packages/db`, or any structural backend change. Layer rules for the domain/usecase layers live in `docs/backend/clean-architecture.md` (lint- and test-enforced).
 
 Historical note: upstream shipped a SendSpin synchronized-playback subsystem (`sendspin_service.py`, `/api/sendspin/*`, PCM paths in FfmpegPipeline). This fork removed it entirely; browsers play the shared HLS stream via a plain `<audio>` element (hls.js on MSE engines, native HLS on iOS Safari). Do not reintroduce per-client audio paths. The earlier raw-MP3 endpoint `/stream/live.mp3` was replaced by `/stream/live.m3u8` + segment files in v1.3.0.
 
@@ -29,7 +29,7 @@ Queue (SQLite) ──▶ StreamEngine (worker thread)
                        gone)
 ```
 
-- Ports: `8000` FastAPI (API + UI + stream).
+- Ports: `8000` Express (API + UI + stream).
 - Browser-facing `stream_url` (API state, WS snapshots) is a **relative path** (`settings.stream_path`, default `/stream/live.m3u8`). The UI and the stream share one origin, so this works no matter which host (LAN IP, VPN IP, localhost) a client used. There is no absolute-URL computation and no `AIRWAVE_PUBLIC_BASE_URL`.
 - The compose file keeps Docker `network_mode: host` for simplicity (historically required for Sonos SSDP discovery; Sonos support has since been removed).
 - StreamEngine runs in-process. Restarting the app always breaks the live stream. Horizontal scaling is impossible by design; do not add per-client transcoding.

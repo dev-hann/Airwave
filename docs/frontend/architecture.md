@@ -50,5 +50,5 @@ Transport actions flip state first, POST second, revert on failure (see `stores/
 
 ## Types
 
-- Wire payloads: `types/api.ts` — strong types from `@airwave/shared/generated/schema.d.ts`; dict-returning endpoints (playlists, entries, local browse, search, spotify import) are hand-derived there with the backend source named in a comment. Formalize them as backend response models eventually and the hand-written block shrinks.
+- Wire payloads: `types/api.ts` — strong types from `@airwave/shared/contracts` (zod); dict-returning endpoints (playlists, entries, local browse, search, spotify import) are hand-derived there with the backend source named in a comment. Formalize them as backend response models eventually and the hand-written block shrinks.
 - Enum values: `@airwave/shared` enums (`PlaybackMode`, `RepeatMode`) for constants; the contract's string unions for types.

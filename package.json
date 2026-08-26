@@ -3,33 +3,18 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "workspaces": [
-    "apps/web",
-    "packages/*"
-  ],
   "scripts": {
-    "dev": "npm run dev -w apps/web",
-    "build": "npm run build -w apps/web",
-    "preview": "npm run preview -w apps/web",
-    "server:dev": "npm run dev -w @airwave/node-server",
-    "test": "npm test --workspaces --if-present"
+    "dev": "pnpm --filter @airwave/web dev",
+    "build": "pnpm --filter @airwave/web build",
+    "preview": "pnpm --filter @airwave/web preview",
+    "server:dev": "pnpm --filter @airwave/node-server dev",
+    "test": "pnpm -r --if-present test"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^9.6.0",
-    "@types/express": "^5.0.6",
     "@types/node": "^26.3.0",
-    "@types/supertest": "^7.2.1",
-    "@types/ws": "^8.18.1",
-    "drizzle-kit": "^0.31.10",
-    "supertest": "^7.2.2",
     "typescript": "5.8.3",
     "vitest": "^4.1.11"
   },
-  "dependencies": {
-    "better-sqlite3": "^13.0.3",
-    "drizzle-orm": "^0.45.2",
-    "express": "^5.2.1",
-    "ws": "^8.21.3",
-    "zod": "^4.4.3"
-  }
+  "dependencies": {},
+  "packageManager": "pnpm@11.24.0"
 }

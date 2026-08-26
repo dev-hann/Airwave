@@ -60,9 +60,7 @@ GHCR keeps every release tag; `WATCHTOWER_CLEANUP` only prunes old images on the
 
 ## CI
 
-- `.github/workflows/ci.yml` (single `python-tests` job, then `docker`/`release`):
-  1. Node tests (tsc typecheck gates + vitest workspaces + frontend build/typecheck/vitest)
-  2. Frontend build check (`npm ci` + `npm run build`)
-  3. Frontend typecheck (`vue-tsc --noEmit`) + unit tests (`vitest run`)
-  4. Contracts drift check — regenerates `packages/shared/src/generated/schema.d.ts` from the OpenAPI dump and fails on diff (run `npm run contracts:gen` locally after response-model changes)
-  5. Docker build & push to GHCR (pushes only), 6. GitHub Release (tag pushes only)
+- `.github/workflows/ci.yml` (jobs: `node-tests`, `frontend-build`, then `docker`/`release`):
+  1. Node tests — pnpm install + tsc typecheck gates (4 packages) + `pnpm test` (all workspaces)
+  2. Frontend build — pnpm install + `pnpm run build`, then `vue-tsc --noEmit` + web vitest
+  3. Docker build & push to GHCR (pushes only; `:latest` moves on tag pushes), 4. GitHub Release (tag pushes only)

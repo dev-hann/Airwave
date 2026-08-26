@@ -6,13 +6,11 @@ ARG APP_VERSION
 
 WORKDIR /build
 
-# Native module build deps (better-sqlite3 via node-gyp)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 make g++ \
-    && rm -rf /var/lib/apt/lists/*
+# pnpm via corepack (version pinned in root package.json packageManager)
+RUN corepack enable
 
-# Copy workspace manifests for dependency install
-COPY package.json package-lock.json* ./
+# Copy workspace manifests + lockfile for dependency install
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json ./apps/web/
 COPY apps/node-server/package.json ./apps/node-server/
 COPY packages/domain/package.json ./packages/domain/
@@ -20,13 +18,14 @@ COPY packages/usecases/package.json ./packages/usecases/
 COPY packages/db/package.json ./packages/db/
 COPY packages/shared/package.json ./packages/shared/
 
-RUN npm ci
+RUN pnpm install --frozen-lockfile --ignore-scripts \
+    && pnpm rebuild esbuild
 
 # Copy application source
 COPY . .
 
 # Build frontend (workspace script targets apps/web; output goes to apps/node-server/static-dist)
-RUN npm run build
+RUN pnpm run build
 
 # Runtime binaries (yt-dlp / deno / ffmpeg / ffprobe) — downloaded into /build/bin
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -96,8 +95,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Workspace + app sources (node_modules from builder for runtime deps)
+# Workspace + app sources (node_modules from builder for runtime deps;
+# better-sqlite3 ships prebuilt bindings, node-gyp skipped via allowBuilds=false)
 COPY --chown=airwave:airwave --from=builder /build/package.json ./package.json
+COPY --chown=airwave:airwave --from=builder /build/pnpm-lock.yaml ./pnpm-lock.yaml
 COPY --chown=airwave:airwave --from=builder /build/node_modules ./node_modules
 COPY --chown=airwave:airwave --from=builder /build/packages ./packages
 COPY --chown=airwave:airwave --from=builder /build/apps/node-server ./apps/node-server

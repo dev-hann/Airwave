@@ -12,7 +12,7 @@ Core working guide for code agents in this repo. This file is the **index** — 
 - Data: SQLite via drizzle-orm + better-sqlite3 (clean-start schema; manual DDL in `Repository.init()`)
 - Frontend: Vue 3 (`<script setup lang="ts">`, strict), Pinia setup stores, file-based routing (vite-plugin-pages), `@nuxt/ui` v4, Tailwind 4, Vitest + vue-tsc
 - Runtime tools: `yt-dlp`, `ffmpeg`/`ffprobe`, `deno` (downloaded in Docker build)
-- Monorepo: npm workspaces — `apps/node-server`, `apps/web`, `packages/{domain,usecases,db,shared}`
+- Monorepo: pnpm workspaces — `apps/node-server`, `apps/web`, `packages/{domain,usecases,db,shared}` (corepack: `corepack enable pnpm`)
 
 ## Repository map
 
@@ -32,7 +32,7 @@ Core working guide for code agents in this repo. This file is the **index** — 
 4. Wire payloads are defined by `packages/shared/src/contracts.ts` (zod) — server and web import the SAME module; breaking changes ship in one commit with web consumers.
 5. Env-driven behavior via `AIRWAVE_*` env vars (see main.ts), not hardcoded values.
 6. New DB columns: extend the Drizzle schema in `packages/db/src/schema.ts` + DDL in `Repository.init()`. No ORM-generated migration tooling beyond that.
-7. Vue changes require `npm run build` before finishing; frontend unit tests (`npm run test -w apps/web`) and typecheck (`npm run typecheck -w apps/web`) must pass (CI runs all three).
+7. Vue changes require `pnpm run build` before finishing; frontend unit tests (`pnpm --filter @airwave/web test`) and typecheck (`pnpm --filter @airwave/web typecheck`) must pass (CI runs all three).
 8. Client disconnects in streaming code are normal — handle gracefully, don't log-spam.
 9. Domain layer stays pure: no I/O, wall clock, or framework imports in `packages/domain`.
 10. Match existing style in touched files; no unrelated refactors.
@@ -48,13 +48,14 @@ Core working guide for code agents in this repo. This file is the **index** — 
 ## Setup & validation
 
 ```bash
-npm install                          # workspace root
-npm test --workspaces --if-present   # vitest: server packages + web stores/api
-npm run build                        # frontend build check
+corepack enable pnpm                 # once (Node 22 ships corepack)
+pnpm install                         # workspace root
+pnpm test                            # vitest: all workspaces (182 tests)
+pnpm run build                       # frontend build check
 # per-package typecheck:
 for pkg in packages/domain packages/usecases packages/db apps/node-server; do (cd "$pkg" && npx tsc --noEmit); done
 # smoke:
-AIRWAVE_FFMPEG_PATH=... AIRWAVE_FFPROBE_PATH=... node --experimental-strip-types apps/node-server/src/main.ts
+AIRWAVE_FFMPEG_PATH=... AIRWAVE_FFPROBE_PATH=... pnpm --filter @airwave/node-server start
 ```
 
 ## Before finishing

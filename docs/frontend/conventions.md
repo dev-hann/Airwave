@@ -6,7 +6,7 @@ Read this before writing or modifying frontend code. Structure overview: `struct
 
 - Strict mode, no `any` in new code; prefer precise types from `types/api.ts` (contract-backed) over invented shapes.
 - SFCs use `<script setup lang="ts">`. Props: `defineProps<{...}>()` (+ `withDefaults` when needed, inlined, never on a variable). Emits: `defineEmits<{ eventName: [payload] }>()`.
-- Never hand-edit `packages/shared/src/generated/schema.d.ts`; regenerate (`npm run contracts:gen`) after backend response-model changes — same commit as the backend change.
+- Wire-format changes: edit `packages/shared/src/contracts.ts` (zod) and update consumers in the same commit — there is no codegen step.
 - Adding an endpoint whose payload isn't in the contract: derive the type in `types/api.ts` with a comment naming the backend source of truth.
 
 ## Patterns

@@ -8,10 +8,10 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@airwave/db": "*",
-    "@airwave/domain": "*",
-    "@airwave/shared": "*",
-    "@airwave/usecases": "*",
+    "@airwave/db": "workspace:*",
+    "@airwave/domain": "workspace:*",
+    "@airwave/shared": "workspace:*",
+    "@airwave/usecases": "workspace:*",
     "express": "^5.1.0",
     "ws": "^8.18.0"
   },
@@ -19,5 +19,11 @@
     "dev": "node --experimental-strip-types --watch src/main.ts",
     "start": "node --experimental-strip-types src/main.ts",
     "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/supertest": "^7.2.1",
+    "@types/ws": "^8.18.1",
+    "supertest": "^7.2.2"
   }
 }

@@ -1,11 +1,8 @@
 # @airwave/shared
 
-Cross-stack contract package: shared enums (`src/enums.js`) and OpenAPI-generated TypeScript types (`src/generated/schema.d.ts`) consumed by `apps/web`.
+Wire contracts shared by the Airwave server and web app.
 
-Regenerate after backend response-model changes (repo root):
+- `contracts.ts` — zod schemas; `z.infer` types are the payload types both sides use.
+- `enums.js` — `RepeatMode`, `PlaybackMode` constants.
 
-```bash
-npm run contracts:gen
-```
-
-CI fails on drift. Never hand-edit generated files — see `AGENTS.md` here.
+Import from `@airwave/shared/contracts` (types) or `@airwave/shared` (enums). Single source of truth — the retired Python/OpenAPI codegen pipeline is not coming back; change the schemas here, not generated files.

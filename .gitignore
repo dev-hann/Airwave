@@ -1,24 +1,17 @@
-.venv/
-.venv-test310/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-__pycache__/
-*.py[cod]
 
 build/
 dist/
-*.egg-info/
 
 .env
 data/airwave.db
-data/mytube.db
+data/*.db-shm
+data/*.db-wal
 
 bin/
 node_modules/
-app/static/dist/
+apps/node-server/static-dist/
 .cursor/
-# OpenAPI export + generated TS (CI regenerates and diff-checks)
+# OpenAPI export (retired with the Python backend)
 openapi.json
 
 # Node migration artifacts

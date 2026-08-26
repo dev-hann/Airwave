@@ -1,21 +1,14 @@
-# packages/shared — cross-stack contract package
+# packages/shared — wire contracts + enums
 
-Read the root `AGENTS.md` first.
+Single source of truth for the wire format, imported by BOTH the Node server and the web app (no codegen, no OpenAPI pipeline).
 
-## Package facts
+## Contents
 
-- npm-workspace member `@airwave/shared`; consumed by `apps/web` and the OpenAPI pipeline.
-- Contents: `src/enums.js` (hand-written enums shared by backend codegen consumers) + `src/generated/schema.d.ts` (TS types generated from the backend's OpenAPI dump).
-- **`schema.d.ts` is generated — never hand-edit.** Regenerate with `npm run contracts:gen` (repo root) after any backend response-model change. CI regenerates and fails on drift.
+- `src/contracts.ts` — zod schemas (`PlaybackStateSchema`, `QueueItemSchema`, `HistoryRowSchema`, `PlaylistSchema`, `UiSnapshotSchema`, …). Inferred types (`z.infer`) are the payload types used across the codebase.
+- `src/enums.js` — `RepeatMode`/`PlaybackMode` constants (JS, importable from the pre-TS parts of the app).
 
-## Dev loop
+## Rules
 
-```bash
-npm run contracts:gen   # repo root: dumps OpenAPI from FastAPI app → openapi-typescript
-git diff -- packages/shared/src/generated/schema.d.ts   # review before committing
-```
-
-## Gotchas
-
-- Contract changes are hard rule 5: backend response model + regenerated types + frontend consumer update in **one commit**.
-- The frontend imports types from here (`@airwave/shared/generated/schema.d.ts`); breaking a rename here is a frontend build break.
+- Field names are frozen to the v1.x wire format; breaking changes ship with every consumer in one commit (hard rule 4).
+- Adding a field is additive; keep serializers (`apps/node-server/src/serializers.ts`) and this module in sync in the same change.
+- This package has no tests of its own — the server's API integration tests assert the shapes.

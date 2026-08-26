@@ -1,3 +1,22 @@
+# Clean Architecture Rules (historical, Python era)
+
+This document governed the Python implementation of the domain/usecases
+layering (`app/domain`, `app/usecases` — removed in the Node migration,
+v2.0.0). The TypeScript ports live in `packages/domain` and
+`packages/usecases` and follow the same rules, enforced by review and the
+type system:
+
+- `packages/domain` — pure: no I/O, no wall clock, injected RNG; types +
+  pure functions only.
+- `packages/usecases` — orchestrates domain through ports; time flows in
+  via injected clocks (tests run without waiting).
+- Adapters (ffmpeg, yt-dlp, segmenter, db) satisfy structural interfaces
+  defined where the domain needs them.
+
+The text below is preserved for historical context.
+
+---
+
 # Clean Architecture Rules (Backend)
 
 Read this before touching `app/domain/`, `app/usecases/`, or the playback

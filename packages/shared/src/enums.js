@@ -1,11 +1,9 @@
 /**
- * Shared enums mirrored from the Python domain (app/domain/playback_state.py).
+ * Shared playback enum constants.
  *
- * These are hand-maintained duplicates BY DESIGN: Python is the source of
- * truth; the OpenAPI-generated types (src/generated/schema.d.ts) cover wire
- * payloads, while these constants give the frontend importable values for
- * the string unions. When changing a Python enum, update this file in the
- * same commit (the golden-fixture tests guard the wire format).
+ * The canonical string unions live in contracts.ts (zod: RepeatModeSchema /
+ * PlaybackModeSchema); these frozen objects give the frontend importable
+ * VALUES (not just types). Keep in sync with contracts.ts in the same commit.
  */
 
 /** @enum {string} */

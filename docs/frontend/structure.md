@@ -6,8 +6,8 @@ Read this before touching frontend structure, state, or the build. For how state
 
 - Source: `apps/web/src/` (TypeScript, strict). npm-workspace member `@airwave/web`; vite config sits at `apps/web/vite.config.ts`. The repo is an npm-workspaces monorepo (`apps/*`, `packages/*`).
 - Build output goes to `apps/node-server/static-dist/` (entry files forced to `app.js` / `app.css`). The Node server serves that directory — **the served app is the build output, not `apps/web/src`**.
-- After changing any Vue file, store, composable, or router behavior: run `npm run build` (workspace root). CI also builds + typechecks + runs unit tests.
-- Shared code: `@airwave/shared` (`packages/shared`) — enums + OpenAPI-generated `schema.d.ts` (regenerate with `npm run contracts:gen`; CI fails on drift).
+- After changing any Vue file, store, composable, or router behavior: run `pnpm run build` (workspace root). CI also builds + typechecks + runs unit tests.
+- Shared code: `@airwave/shared` (`packages/shared`) — enums + zod contracts (`contracts.ts`) imported by both server and web (no codegen).
 
 ## Tree
 
@@ -15,7 +15,7 @@ Read this before touching frontend structure, state, or the build. For how state
 apps/web/src/
   main.ts            # app bootstrap: pinia → router → @nuxt/ui → WS connect → mount
   router.ts          # createRouter + file-based routes from vite-plugin-pages
-  types/api.ts       # payload types: schema.d.ts aliases + serializer-derived shapes
+  types/api.ts       # payload types: zod-contract aliases + serializer-derived shapes
   lib/api/
     http.ts          # typed fetch client (fetchJson/postJson/patchJson/deleteJson/getJson, ApiError)
     ws.ts            # receive-only WS client (reconnect backoff, onSnapshot registry)

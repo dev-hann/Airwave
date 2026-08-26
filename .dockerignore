@@ -1,17 +1,5 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-.venv/
-venv/
-ENV/
-env/
-*.egg-info/
 dist/
 build/
-*.egg
 
 # Node
 node_modules/
@@ -27,9 +15,7 @@ yarn-error.log*
 *~
 
 # Testing
-.pytest_cache/
-.coverage
-htmlcov/
+test-results/
 test-results/
 *.db
 *.sqlite
@@ -59,6 +45,6 @@ Thumbs.db
 *.log
 logs/
 
-# Monorepo local artifacts
-apps/server/data/
-apps/server/bin/
+# Local artifacts
+data/
+apps/node-server/data/

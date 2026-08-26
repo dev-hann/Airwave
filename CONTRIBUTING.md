@@ -11,13 +11,13 @@ This fork is maintained primarily by AI agents with human review. The working gu
 ## Validation before opening a PR
 
 ```bash
-source .venv/bin/activate
-cd apps/server && python -m pytest      # backend suite (270 tests)
-cd ../.. && npm run build               # frontend build (contract types must be current)
-npm run contracts:gen && git diff --exit-code -- packages/shared/src/generated/schema.d.ts
+corepack enable pnpm   # once (Node 22 ships corepack)
+pnpm install
+pnpm test               # all workspaces: server packages + web (182 tests)
+pnpm run build          # frontend build -> apps/node-server/static-dist
 ```
 
-Frontend changes additionally: `npm run test` (Vitest) and `npm run typecheck` (vue-tsc) once the TS migration lands — CI enforces both.
+Frontend changes additionally: `pnpm --filter @airwave/web test` (Vitest) and `pnpm --filter @airwave/web typecheck` (vue-tsc) — CI enforces both.
 
 ## Commits & pull requests
 

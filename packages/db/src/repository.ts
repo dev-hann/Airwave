@@ -47,8 +47,8 @@ export class Repository {
   // ------------------------------------------------------------------ init
 
   init(): void {
-    // drizzle-kit owns DDL for real deployments (see drizzle/ migrations);
-    // for tests and first boot, create tables directly.
+    // Manual DDL — the single migration path (AGENTS hard rule 6):
+    // schema.ts declares columns; this method creates them. No migration tool.
     this.db.run(sql`
       CREATE TABLE IF NOT EXISTS playlists (
         id TEXT PRIMARY KEY,

@@ -117,7 +117,7 @@ ENV NODE_ENV=production \
     AIRWAVE_FFMPEG_PATH=/app/bin/ffmpeg \
     AIRWAVE_FFPROBE_PATH=/app/bin/ffprobe \
     AIRWAVE_DENO_PATH=/app/bin/deno \
-    AIRWAVE_DB_URL="sqlite:///./data/airwave.db" \
+    AIRWAVE_DB_URL="/app/data/airwave.db" \
     AIRWAVE_STATIC_DIR=/app/apps/node-server/static-dist \
     PATH="/app/bin:${PATH}"
 

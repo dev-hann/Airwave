@@ -40,9 +40,10 @@ export class YtDlpService {
 
   async resolveVideo(url: string, forceRefresh = false): Promise<ResolvedTrackLike> {
     const args = [
-      "-J", // single JSON dump
+      "-J", // single JSON dump with the selected format resolved
       "--no-warnings",
       "--no-playlist",
+      "-f", "bestaudio[acodec!=none]/bestaudio/best", // top-level url = picked format
       ...(forceRefresh ? ["--no-cache-dir"] : []),
       url,
     ];
@@ -70,8 +71,10 @@ export class YtDlpService {
 
   private pickStreamUrl(entry: RawEntry): string {
     if (entry.url) return entry.url;
-    const audio = entry.formats?.find((f) => f.url && f.acodec && f.acodec !== "none" && f.protocol !== "m3u8_native");
-    if (audio?.url) return audio.url;
+    // -f selection gives a top-level url; formats are the fallback path only.
+    const audio = entry.formats?.filter((f) => f.url && f.acodec && f.acodec !== "none");
+    const best = audio?.[audio.length - 1];
+    if (best?.url) return best.url;
     const any = entry.formats?.find((f) => f.url);
     if (any?.url) return any.url;
     throw new YtDlpError("no stream URL in yt-dlp output");

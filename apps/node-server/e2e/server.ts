@@ -39,7 +39,7 @@ const app = createApp({
       title: "E2E Search Hit",
       channel: "E2E Channel",
       duration_seconds: 90,
-      thumbnail_url: null,
+      thumbnail_url: "https://i.ytimg.com/vi/e2evid/hqdefault.jpg",
     },
   ],
   isPlaylistUrl: (url) => url.includes("list="),

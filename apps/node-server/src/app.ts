@@ -231,8 +231,8 @@ export function createApp(options: AppOptions) {
         : await playlistsSvc.addUrl(url);
       if (result.item_ids.length > 0) {
         repo.moveItemToFront(result.item_ids[0]!);
-        engine.skip();
       }
+      engine.playNow();
       publish();
       res.json({ ok: true, ...result });
     } catch (error) {
@@ -250,8 +250,8 @@ export function createApp(options: AppOptions) {
       const result = await playlistsSvc.addLocalPath(path);
       if (result.item_ids.length > 0) {
         repo.reorderQueuedItems(result.item_ids);
-        engine.skip();
       }
+      engine.playNow();
       publish();
       res.json({ ok: true, ...result });
     } catch (error) {
@@ -269,8 +269,8 @@ export function createApp(options: AppOptions) {
       const result = await playlistsSvc.addLocalFolder(path, req.body?.recursive !== false);
       if (result.item_ids.length > 0) {
         repo.reorderQueuedItems(result.item_ids);
-        engine.skip();
       }
+      engine.playNow();
       publish();
       res.json({ ok: true, ...result });
     } catch (error) {
@@ -636,7 +636,7 @@ export function createApp(options: AppOptions) {
   app.post("/api/playlists/:id/play-now", (req, res) => {
     try {
       const result = playlistsSvc.queuePlaylist(req.params.id, true);
-      if (result.item_ids.length > 0) engine.skip();
+      engine.playNow();
       publish();
       res.json(result);
     } catch (error) {

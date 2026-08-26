@@ -398,6 +398,19 @@ export class StreamEngine {
     this.requestInterrupt("skip");
   }
 
+  /**
+   * "Play now" semantics: the user explicitly asked for playback, so any
+   * lingering user-stop flag must clear first — otherwise the engine stays
+   * idle forever with queued items (skip() alone does not resume it).
+   */
+  playNow(): void {
+    if (this.userStopped) {
+      this.userStopped = false;
+      this.requestInterrupt("resume_from_stop");
+    }
+    this.requestInterrupt("skip");
+  }
+
   togglePause(): boolean {
     if (this.state.mode !== "playing") return false;
     if (this.state.paused) {

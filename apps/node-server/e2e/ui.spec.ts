@@ -42,6 +42,44 @@ test.describe("UI shell", () => {
     await expect(page.getByText(marker, { exact: false }).first()).toBeVisible({ timeout: 30_000 });
   });
 
+  test("user journey: search → click play on a result → playback starts", async ({ page, request }) => {
+    // Hermetic start: clear queue, stop, then verify idle — the exact
+    // conditions of the incident (userStopped latched, nothing playing).
+    await request.post("/api/playback/stop", {});
+    await request.post("/api/queue/clear", {});
+    await expect
+      .poll(async () => (await (await request.get("/api/state")).json()).mode, { timeout: 15_000 })
+      .toBe("idle");
+    await page.goto(AGAINST_PROD ? "/search?q=lofi" : "/search?q=anything");
+
+    // The result card's thumbnail overlay is the play button. Stub results
+    // carry no thumbnail, so scope by the result title text instead.
+    const marker = AGAINST_PROD ? "lofi" : "E2E Search Hit";
+    const firstResult = page.locator(".group", { hasText: marker }).first();
+    await expect(firstResult).toBeVisible({ timeout: 30_000 });
+    // Play is bound to the thumbnail wrapper (Song.vue); its hover overlay
+    // (aria-hidden div) intercepts pointer events over the img — click the
+    // wrapper itself. Stub thumbnails are external URLs we never fetch.
+    await page.route("https://i.ytimg.com/**", (route) => route.abort());
+    const playTarget = (await firstResult.locator("img").count()) > 0
+      ? firstResult.locator("img").locator("xpath=..")
+      : firstResult;
+    await playTarget.first().click();
+
+    // BEFORE the v2.2.1 fix this stayed idle forever after a stop.
+    await expect
+      .poll(async () => (await (await request.get("/api/state")).json()).mode, { timeout: 45_000 })
+      .toBe("playing");
+
+    // Leave the server playable: reset + clear.
+    await request.post("/api/playback/stop", {});
+    await request.post("/api/queue/clear", {});
+    await request.post("/api/playback/play", {});
+    await expect
+      .poll(async () => (await (await request.get("/api/state")).json()).mode, { timeout: 15_000 })
+      .toBe("idle");
+  }, 120_000);
+
   test("deep link renders the SPA (history-mode fallback)", async ({ page }) => {
     const response = await page.goto("/explorer");
     expect(response?.status()).toBe(200);
@@ -70,6 +108,14 @@ test.describe("UI shell", () => {
         .toBeGreaterThan(0);
       await request.post("/api/playback/stop", {});
       await request.post("/api/queue/clear", {});
+      // CRITICAL: stop() latches userStopped=true; without the follow-up play
+      // the NEXT user's queue add never starts (the v2.2.0 production
+      // incident — E2E left the server wedged). Always hand back a
+      // playable server.
+      await request.post("/api/playback/play", {});
+      await expect
+        .poll(async () => (await (await request.get("/api/state")).json()).mode, { timeout: 15_000 })
+        .toBe("idle");
     });
   });
 });

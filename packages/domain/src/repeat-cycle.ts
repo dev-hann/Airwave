@@ -15,11 +15,11 @@ export interface TrackIdentity {
   title: string | null;
   durationSeconds: number | null;
   thumbnailUrl: string | null;
-  playlistId?: number | null;
+  playlistId?: string | null;
 }
 
 export interface RepeatCycleItem extends TrackIdentity {
-  playlistId: number | null;
+  playlistId: string | null;
 }
 
 export function repeatCycleItemFrom(item: TrackIdentity): RepeatCycleItem {
@@ -37,7 +37,7 @@ export function repeatCycleItemFrom(item: TrackIdentity): RepeatCycleItem {
 }
 
 /** Insert-fields for the queue from a stored cycle item. */
-export function newQueueItemFields(cycleItem: RepeatCycleItem): TrackIdentity & { playlistId: number | null } {
+export function newQueueItemFields(cycleItem: RepeatCycleItem): TrackIdentity & { playlistId: string | null } {
   return {
     sourceUrl: cycleItem.sourceUrl,
     provider: cycleItem.provider,
@@ -52,7 +52,7 @@ export function newQueueItemFields(cycleItem: RepeatCycleItem): TrackIdentity & 
 }
 
 /** Enqueue fields from a history/queue row, coalescing missing source URL. */
-export function replayItemFields(item: TrackIdentity): TrackIdentity & { playlistId: number | null } {
+export function replayItemFields(item: TrackIdentity): TrackIdentity & { playlistId: string | null } {
   const fields = newQueueItemFields(repeatCycleItemFrom(item));
   if (!fields.sourceUrl) fields.sourceUrl = "unknown";
   return fields;

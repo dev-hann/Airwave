@@ -60,8 +60,10 @@ class FakeProc {
         if (this.#bytes.length === 0) this.stdout.push(null);
       },
     });
-    this.stderr = new Writable({ write: (_c, _e, cb) => cb() });
-    this.stderr.read = () => Buffer.from(stderr);
+    const buffer = Buffer.from(stderr);
+    this.stderr = Object.assign(new Writable({ write: (_c, _e, cb) => cb() }), {
+      read: () => buffer,
+    });
   }
   poll(): number {
     return this.returncode;

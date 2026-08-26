@@ -40,7 +40,7 @@ const fakeRow = (overrides: Partial<FakeRow> = {}): FakeRow => ({
   title: "Song",
   durationSeconds: 200,
   thumbnailUrl: "https://t",
-  playlistId: 7,
+  playlistId: "pl-7",
   ...overrides,
 });
 
@@ -211,7 +211,7 @@ it("repeat cycle roundtrip preserves fields", () => {
   const fields = newQueueItemFields(item);
   expect(fields.sourceUrl).toBe("https://s");
   expect(fields.provider).toBe("youtube");
-  expect(fields.playlistId).toBe(7);
+  expect(fields.playlistId).toBe("pl-7");
   expect(Object.keys(fields).sort()).toEqual(
     [
       "durationSeconds",

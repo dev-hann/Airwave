@@ -15,8 +15,14 @@
     "contracts:gen": "npm run contracts:export && npx openapi-typescript openapi.json -o packages/shared/src/generated/schema.d.ts"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.3.0",
+    "drizzle-kit": "^0.31.10",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "drizzle-orm": "^0.45.2"
   }
 }

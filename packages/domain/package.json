@@ -14,5 +14,8 @@
     "./seek": "./src/seek.ts",
     "./shuffle-order": "./src/shuffle-order.ts",
     "./ports": "./src/ports.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.3.0"
   }
 }

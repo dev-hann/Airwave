@@ -1,5 +1,5 @@
 {
-  "name": "@airwave/usecases",
+  "name": "@airwave/db",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -7,10 +7,12 @@
   "types": "src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./play-track": "./src/play-track.ts"
+    "./schema": "./src/schema.ts"
   },
   "dependencies": {
-    "@airwave/domain": "*"
+    "@airwave/domain": "*",
+    "better-sqlite3": "^13.0.3",
+    "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
     "@types/node": "^26.3.0"

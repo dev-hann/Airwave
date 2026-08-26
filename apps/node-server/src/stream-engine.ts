@@ -568,20 +568,26 @@ export class StreamEngine {
       return (stdout.read(this.chunkSize) as Buffer) ?? Buffer.alloc(0);
     }
     return await new Promise<Buffer>((resolve) => {
-      const onReadable = () => {
+      let settled = false;
+      const settle = (value: Buffer) => {
+        if (settled) return;
+        settled = true;
         cleanup();
-        resolve((stdout.read(this.chunkSize) as Buffer) ?? Buffer.alloc(0));
+        resolve(value);
       };
-      const onEnd = () => {
-        cleanup();
-        resolve(Buffer.alloc(0));
-      };
+      const onReadable = () => settle((stdout.read(this.chunkSize) as Buffer) ?? Buffer.alloc(0));
+      const onEnd = () => settle(Buffer.alloc(0));
+      const onData = (data: Buffer) => settle(data);
       const cleanup = () => {
         stdout.off("readable", onReadable);
         stdout.off("end", onEnd);
+        stdout.off("data", onData);
       };
       stdout.on("readable", onReadable);
       stdout.on("end", onEnd);
+      // 'data' fires in flowing mode once a listener exists; reading via
+      // 'readable' can stall when the stream already entered flowing mode.
+      stdout.on("data", onData);
     });
   }
 
@@ -641,8 +647,8 @@ export class StreamEngine {
               if (!chunk || chunk.length === 0) break;
               engine.segmenter.write(chunk);
             }
-          } catch {
-            /* transition silence ends quietly */
+          } catch (error) {
+            console.error("[transition-silence] loop failed", error);
           }
         })();
         return {
@@ -692,57 +698,62 @@ export class StreamEngine {
       const process = this.ffmpeg.spawnForSource(resolved.streamUrl, seekSeconds);
       this.activeProcess = process;
       this.notifyStateChanged();
+      process.process.stderr?.on("data", (d: Buffer) => console.error("[ffmpeg-decode]", d.toString().trim()));
 
       let chunksSent = 0;
       let bytesSent = 0;
       let firstChunk = true;
       const chunkSize = this.chunkSize;
       const stdout = process.stdout;
-      const collect = async (size: number): Promise<Buffer> => {
-        if (stdout.readableLength > 0) return (stdout.read(size) as Buffer) ?? Buffer.alloc(0);
-        if (!stdout.readable) return Buffer.alloc(0);
-        return await new Promise<Buffer>((resolveChunk) => {
-          const onReadable = () => {
-            cleanup();
-            resolveChunk((stdout.read(size) as Buffer) ?? Buffer.alloc(0));
-          };
-          const onEnd = () => {
-            cleanup();
-            resolveChunk(Buffer.alloc(0));
-          };
-          const cleanup = () => {
-            stdout.off("readable", onReadable);
-            stdout.off("end", onEnd);
-          };
-          stdout.on("readable", onReadable);
-          stdout.on("end", onEnd);
-        });
-      };
 
-      for (;;) {
+      // Event-driven chunk queue: producer (data events) runs on the event
+      // loop; consumer awaits the queue. Proven path from the E2E smoke.
+      const pending: Buffer[] = [];
+      let finished = false;
+      let wake: (() => void) | null = null;
+      const onData = (data: Buffer) => {
+        pending.push(data);
+        wake?.();
+      };
+      const onEnd = () => {
+        finished = true;
+        wake?.();
+      };
+      stdout.on("data", onData);
+      stdout.on("end", onEnd);
+
+      const interruptCheck = async (): Promise<void> => {
         if (!this.running) throw new InterruptedError("stop");
         if (this.interruptRequested) {
-          const reason = this.consumeInterrupt();
-          throw new InterruptedError(reason);
+          throw new InterruptedError(this.consumeInterrupt());
         }
-        const readStarted = this.clock();
-        const chunk = await collect(chunkSize);
-        const readSeconds = this.clock() - readStarted;
-        if (chunk.length > 0 && readSeconds >= 0.3) {
-          console.warn(
-            `Slow ffmpeg read while streaming track_id=${itemLike.id} attempt=${attempt} chunk_index=${chunksSent} read_seconds=${readSeconds.toFixed(3)}`,
-          );
-        }
-        if (chunk.length === 0) break;
-        if (firstChunk) {
-          if (silenceHandle) {
-            this.attemptHooks.stopTransitionSilence(silenceHandle);
+      };
+
+      try {
+        for (;;) {
+          await interruptCheck();
+          if (pending.length === 0) {
+            if (finished) break;
+            await new Promise<void>((resolveWait) => {
+              wake = resolveWait;
+            });
+            wake = null;
+            continue;
           }
-          firstChunk = false;
+          const buffer = pending.shift()!;
+          if (buffer.length === 0) continue;
+          if (chunksSent === 0) {
+            if (silenceHandle) this.attemptHooks.stopTransitionSilence(silenceHandle);
+          }
+          this.segmenter.write(buffer);
+          chunksSent += 1;
+          bytesSent += buffer.length;
+          void firstChunk;
+          void chunkSize;
         }
-        this.segmenter.write(chunk);
-        chunksSent += 1;
-        bytesSent += chunk.length;
+      } finally {
+        stdout.off("data", onData);
+        stdout.off("end", onEnd);
       }
 
       if (this.interruptRequested) throw new InterruptedError(this.consumeInterrupt());

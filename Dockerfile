@@ -6,6 +6,11 @@ ARG APP_VERSION
 
 WORKDIR /build
 
+# Native module build deps (better-sqlite3 via node-gyp)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy workspace manifests for dependency install
 COPY package.json package-lock.json* ./
 COPY apps/web/package.json ./apps/web/

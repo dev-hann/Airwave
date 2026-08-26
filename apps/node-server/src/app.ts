@@ -86,7 +86,7 @@ export function createApp(options: AppOptions) {
       (async () => {
         throw new Error("Playlist preview unavailable");
       }),
-    resolveVideo: options.trackSource.resolveVideo,
+    resolveVideo: (url: string, forceRefresh?: boolean) => options.trackSource.resolveVideo(url, forceRefresh),
   };
   const mediaResolver = new MediaSourceResolver(options.localMediaRoots ?? [], (url) => pipeline.probeSource(url));
   const playlistsSvc = new PlaylistService(repo, ytDlpAdapter, mediaResolver, { publish });

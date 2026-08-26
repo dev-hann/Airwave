@@ -6,6 +6,11 @@ const FFMPEG = process.env.AIRWAVE_FFMPEG_PATH ?? "ffmpeg";
 const FFPROBE = process.env.AIRWAVE_FFPROBE_PATH ?? "ffprobe";
 const binariesAvailable =
   spawnSync(FFMPEG, ["-version"]).status === 0 && spawnSync(FFPROBE, ["-version"]).status === 0;
+// Against production (AIRWAVE_E2E_BASE_URL) the real yt-dlp resolves URLs,
+// so fake video IDs 404 — use a known-good video. With the stub webServer the
+// title is always "E2E Test Track".
+const AGAINST_PROD = Boolean(process.env.AIRWAVE_E2E_BASE_URL);
+const REAL_VIDEO_URL = "https://www.youtube.com/watch?v=3iM_06QeZi8"; // IU live clip
 
 test.describe("UI shell", () => {
   test("page loads: bundle fetched, no console errors", async ({ page }) => {
@@ -24,15 +29,17 @@ test.describe("UI shell", () => {
 
   test("queue add renders the track in the UI", async ({ page, request }) => {
     await page.goto("/");
-    await request.post("/api/queue/add", { data: { url: "https://www.youtube.com/watch?v=e2e-track" } });
-    // The stub resolves immediately, so the resolved title reaches the UI via
-    // the WS snapshot ("Up next" preview + sidebar queue).
-    await expect(page.getByText("E2E Test Track").first()).toBeVisible({ timeout: 15_000 });
+    const url = AGAINST_PROD ? REAL_VIDEO_URL : "https://www.youtube.com/watch?v=e2e-track";
+    await request.post("/api/queue/add", { data: { url } });
+    // Resolved title reaches the UI via the WS snapshot ("Up next" + sidebar).
+    const marker = AGAINST_PROD ? "IU" : "E2E Test Track";
+    await expect(page.getByText(marker, { exact: false }).first()).toBeVisible({ timeout: 30_000 });
   });
 
   test("search page renders results from /api/search", async ({ page }) => {
-    await page.goto("/search?q=anything");
-    await expect(page.getByText("E2E Search Hit").first()).toBeVisible({ timeout: 15_000 });
+    await page.goto(AGAINST_PROD ? "/search?q=lofi" : "/search?q=anything");
+    const marker = AGAINST_PROD ? "lofi" : "E2E Search Hit";
+    await expect(page.getByText(marker, { exact: false }).first()).toBeVisible({ timeout: 30_000 });
   });
 
   test("deep link renders the SPA (history-mode fallback)", async ({ page }) => {
@@ -47,7 +54,7 @@ test.describe("UI shell", () => {
     test("engine plays and audio buffers", async ({ page, request }) => {
       await page.goto("/");
       await request.post("/api/queue/clear", {});
-      await request.post("/api/queue/add", { data: { url: "https://www.youtube.com/watch?v=e2e-play" } });
+      await request.post("/api/queue/add", { data: { url: AGAINST_PROD ? REAL_VIDEO_URL : "https://www.youtube.com/watch?v=e2e-play" } });
       await expect
         .poll(async () => (await (await request.get("/api/state")).json()).mode, { timeout: 30_000 })
         .toBe("playing");
@@ -61,6 +68,8 @@ test.describe("UI shell", () => {
           { timeout: 20_000 },
         )
         .toBeGreaterThan(0);
+      await request.post("/api/playback/stop", {});
+      await request.post("/api/queue/clear", {});
     });
   });
 });

@@ -573,6 +573,9 @@ export class StreamEngine {
     if (stdout.readableLength > 0) {
       return (stdout.read(this.chunkSize) as Buffer) ?? Buffer.alloc(0);
     }
+    // Pure data-driven wait: 'readable' + 'data' together race — 'readable'
+    // can fire while read() still returns null and settle an empty chunk,
+    // stalling the idle-silence loop (observed: 0 bytes fed, forever).
     return await new Promise<Buffer>((resolve) => {
       let settled = false;
       const settle = (value: Buffer) => {
@@ -581,19 +584,17 @@ export class StreamEngine {
         cleanup();
         resolve(value);
       };
-      const onReadable = () => settle((stdout.read(this.chunkSize) as Buffer) ?? Buffer.alloc(0));
-      const onEnd = () => settle(Buffer.alloc(0));
       const onData = (data: Buffer) => settle(data);
+      const onEnd = () => settle(Buffer.alloc(0));
+      const onError = () => settle(Buffer.alloc(0));
       const cleanup = () => {
-        stdout.off("readable", onReadable);
-        stdout.off("end", onEnd);
         stdout.off("data", onData);
+        stdout.off("end", onEnd);
+        stdout.off("error", onError);
       };
-      stdout.on("readable", onReadable);
-      stdout.on("end", onEnd);
-      // 'data' fires in flowing mode once a listener exists; reading via
-      // 'readable' can stall when the stream already entered flowing mode.
       stdout.on("data", onData);
+      stdout.on("end", onEnd);
+      stdout.on("error", onError);
     });
   }
 

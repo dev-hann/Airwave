@@ -62,6 +62,12 @@ jobs:
       - name: Frontend unit tests (vitest)
         run: pnpm --filter @airwave/web test
 
+      - name: Install Playwright browsers
+        run: pnpm --filter @airwave/node-server exec playwright install chromium --with-deps
+
+      - name: Browser E2E (UI shell)
+        run: pnpm --filter @airwave/node-server test:e2e
+
   docker:
     name: Build and push Docker image
     runs-on: ubuntu-latest

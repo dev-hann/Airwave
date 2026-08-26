@@ -5,3 +5,4 @@ allowBuilds:
   better-sqlite3: false
   esbuild: true
   vue-demi: true
+  playwright: true

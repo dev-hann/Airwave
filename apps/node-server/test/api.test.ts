@@ -2,7 +2,7 @@
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve as resolvePath } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
 
@@ -30,6 +30,7 @@ beforeAll(async () => {
     ffmpegPath: process.env.AIRWAVE_FFMPEG_PATH ?? "ffmpeg",
     ffprobePath: process.env.AIRWAVE_FFPROBE_PATH ?? "ffprobe",
     hlsDirectory: join(dir, "hls"),
+    staticDir: resolvePath("static-dist"),
     trackSource: {
       resolveVideo: async (url) => stubTrack(url),
       normalizeUrl: (url) => url,
@@ -197,5 +198,41 @@ describe("API", () => {
   it("unknown segment 404s", async () => {
     const res = await request(base()).get("/stream/seg0000000042.ts");
     expect(res.status).toBe(404);
+  });
+
+  describe("static serving + SPA fallback", () => {
+    it("serves the bundle at root paths (app.js)", async () => {
+      const res = await request(base()).get("/app.js");
+      expect(res.status).toBe(200);
+      expect(res.headers["content-type"]).toContain("javascript");
+      expect(String(res.text ?? "").length).toBeGreaterThan(1000);
+    });
+
+    it("serves the stylesheet at root path (app.css)", async () => {
+      const res = await request(base()).get("/app.css");
+      expect(res.status).toBe(200);
+      expect(res.headers["content-type"]).toContain("css");
+    });
+
+    it("serves chunk files from subdirectories", async () => {
+      const res = await request(base()).get("/chunks/cookies.js");
+      expect(res.status).toBe(200);
+      expect(res.headers["content-type"]).toContain("javascript");
+    });
+
+    it("deep links fall back to the SPA shell (history mode)", async () => {
+      const res = await request(base()).get("/explorer");
+      expect(res.status).toBe(200);
+      expect(res.headers["content-type"]).toContain("text/html");
+      expect(res.text).toContain("app.js");
+    });
+
+    it("SPA fallback never swallows unknown API routes", async () => {
+      const res = await request(base()).get("/api/nonexistent-endpoint");
+      // The SPA fallback would answer 200 with the shell; a real miss must 404.
+      // (Express's default 404 body is text/html "Cannot GET ..." — fine.)
+      expect(res.status).toBe(404);
+      expect(res.text).not.toContain("app.js");
+    });
   });
 });

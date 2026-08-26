@@ -86,6 +86,9 @@ export class FfmpegPipeline {
   /** Per-track decoder: source → continuous MP3 on stdout (tag-free for the packager). */
   spawnForSource(sourceUrl: string, startAtSeconds = 0): SpawnedProcess {
     const args: string[] = ["-re"];
+    // lavfi graph strings (E2E stub sources): the input demuxer needs -f lavfi.
+    const isLavfi = !sourceUrl.includes("://") && !sourceUrl.startsWith("/");
+    if (isLavfi) args.push("-f", "lavfi");
     if (/^https?:\/\//.test(sourceUrl)) {
       args.push(
         "-reconnect", "1",

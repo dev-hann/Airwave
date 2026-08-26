@@ -376,10 +376,23 @@ export function createApp(options: AppOptions) {
   });
 
   // ------------------------------------------------------------- frontend
+  // Order matters: API/HLS routes are registered above; static assets and the
+  // SPA fallback come last so they can never shadow /api/* or /stream/*.
 
   const staticDir = options.staticDir ?? resolvePath("static-dist");
+  // Root mount serves the bundle at the paths index.html references
+  // (/app.js, /app.css, /chunks/*, /assets/*).
+  app.use(express.static(staticDir, { etag: true, maxAge: 0 }));
+  // Legacy /static prefix kept for compatibility.
   app.use("/static", express.static(staticDir, { etag: true, maxAge: 0 }));
-  app.get("/", async (_req: Request, res: Response) => {
+  // SPA fallback: deep links (/explorer, /playlist/:id) render the shell.
+  // Middleware guard (not a wildcard route) — Express 5 '{*splat}' would also
+  // swallow unknown /api/* paths, but an unhandled API route must stay a 404.
+  app.use(async (req: Request, res: Response, next) => {
+    if (req.method !== "GET" || req.path.startsWith("/api/") || req.path.startsWith("/stream/")) {
+      next();
+      return;
+    }
     try {
       const html = await readFile(join(staticDir, "index.html"), "utf-8");
       res.setHeader("Cache-Control", "no-cache");

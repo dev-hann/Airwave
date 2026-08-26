@@ -6,24 +6,22 @@
  * mutations happen between awaits only, so snapshot() is trivially consistent.
  */
 
-import { resolve as resolvePath } from "node:path";
-
 import {
   ATTEMPT_COMPLETED,
   ATTEMPT_RETRY_FFMPEG,
   initialPlaybackState,
-  newQueueItemFields,
   PlaybackState,
+  playbackProgress,
   REPEAT_ALL,
   REPEAT_ONE,
   repeatCycleItemFrom,
   ResolvedTrackLike,
   restoreOrder,
   shuffledOrder,
-  TrackIdentity,
+  stderrIndicatesStreamFailure,
 } from "@airwave/domain";
 import { Repository } from "@airwave/db";
-import { AttemptHooks, InterruptedError, TrackAttemptRequest, TrackAttemptRunner } from "@airwave/usecases";
+import { AttemptHooks, InterruptedError } from "@airwave/usecases";
 
 import { FfmpegPipeline, SpawnedProcess } from "./ffmpeg-pipeline.js";
 import { HlsSegmenter } from "./hls-segmenter.js";
@@ -71,7 +69,6 @@ export class StreamEngine {
   private readonly clock: () => number;
   private readonly sleeper: (seconds: number) => Promise<void>;
 
-  private readonly attemptRunner: TrackAttemptRunner;
   private readonly attemptHooks: AttemptHooks;
 
   private readonly resolvedTrackCache = new Map<number, ResolvedTrackCacheEntry>();
@@ -99,11 +96,6 @@ export class StreamEngine {
     this.onStateChange = options.onStateChange;
     this.clock = options.clock ?? (() => performance.now() / 1000);
     this.sleeper = options.sleeper ?? ((seconds) => new Promise((r) => setTimeout(r, seconds * 1000)));
-    this.attemptRunner = new TrackAttemptRunner({
-      transcoder: this.ffmpegAdapter(),
-      clock: this.clock,
-      chunkSize: this.chunkSize,
-    });
     this.attemptHooks = this.buildAttemptHooks();
   }
 
@@ -271,12 +263,9 @@ export class StreamEngine {
         for (let attempt = 1; attempt <= totalAttempts; attempt++) {
           if (!this.running) throw new InterruptedError("stop");
           this.activeProcess = null;
-          // Resolution is async in Node: pre-seed the sync runner's cache.
+          // Resolution is async in Node: pre-seed before the attempt.
           await this.ensureResolved(queueItem.id, queueItem.sourceUrl, attempt > 1);
-          const result = this.attemptRunner.run(
-            { queueItem: itemLike, attempt, defaultSeekSeconds: startOffset },
-            this.attemptHooks,
-          );
+          const result = await this.runAttempt(itemLike, attempt, startOffset);
           startOffset = result.seekSeconds;
 
           if (result.outcome === ATTEMPT_COMPLETED) {
@@ -300,7 +289,7 @@ export class StreamEngine {
         if (finalFailure) throw finalFailure;
       } catch (error) {
         if (error instanceof InterruptedError) {
-          const reason = this.consumeInterrupt();
+          const reason: string = error.reason || this.consumeInterrupt();
           if (reason === "pause" || reason === "resume" || (reason === "seek" && this.state.paused)) {
             await this.streamPaused();
             if (!this.running) return;
@@ -318,9 +307,8 @@ export class StreamEngine {
           if (reason === "stop") return;
           if (reason === "user_stop") {
             this.repo.markPlaybackFinished(queueItem.id, "skipped");
-            this.repo.enqueueCycleItems([repeatCycleItemFrom(itemLike)]);
-            const queued = this.repo.listQueuedIds();
-            if (queued.length > 0) this.repo.moveItemToFront(queued[queued.length - 1]!);
+            const reQueued = this.repo.enqueueCycleItems([repeatCycleItemFrom(itemLike)]);
+            if (reQueued.length > 0) this.repo.moveItemToFront(reQueued[0]!.id);
             this.notifyStateChanged();
             return;
           }
@@ -523,9 +511,7 @@ export class StreamEngine {
 
   // ------------------------------------------------------------ progress
 
-  playbackProgress(): ReturnType<typeof import("@airwave/domain").playbackProgress> {
-    // Imported lazily to avoid circulars at module init in some bundlers.
-    const { playbackProgress } = require("@airwave/domain") as typeof import("@airwave/domain");
+  playbackProgress(): ReturnType<typeof playbackProgress> {
     return playbackProgress(this.state, this.clock());
   }
 
@@ -599,23 +585,6 @@ export class StreamEngine {
   }
 
   // ------------------------------------------------------------ adapters
-
-  private ffmpegAdapter() {
-    // Adapts FfmpegPipeline (async streams) to the runner's sync-read Transcoder port.
-    const pipeline = this.ffmpeg;
-    return {
-      spawnForSource: (sourceUrl: string, startAtSeconds = 0) => {
-        const proc = pipeline.spawnForSource(sourceUrl, startAtSeconds);
-        this.activeProcess = proc;
-        return makeSyncProc(proc, this.chunkSize);
-      },
-      spawnSilence: () => makeSyncProc(pipeline.spawnSilence(), this.chunkSize),
-      probeSource: async (sourceUrl: string) => {
-        const probe = await pipeline.probeSource(sourceUrl);
-        return { duration_seconds: probe.durationSeconds };
-      },
-    };
-  }
 
   private buildAttemptHooks(): AttemptHooks {
     const engine = this;
@@ -699,6 +668,147 @@ export class StreamEngine {
     };
   }
 
+
+  /** One playback attempt, native async (clock-injected, interrupt-aware). */
+  private async runAttempt(
+    itemLike: { id: number; sourceUrl: string; durationSeconds: number | null },
+    attempt: number,
+    defaultSeek: number,
+  ): Promise<{ outcome: string; reason: string | null; chunksSent: number; bytesSent: number; elapsedSeconds: number; expectedSeconds: number; seekSeconds: number }> {
+    const silenceHandle = this.attemptHooks.startTransitionSilence();
+    const startedAt = this.clock();
+    try {
+      const resolved = await this.ensureResolved(itemLike.id, itemLike.sourceUrl, attempt > 1);
+      const probe = await this.ffmpeg.probeSource(resolved.streamUrl).catch(() => null);
+      const probedDuration = probe?.durationSeconds ?? null;
+
+      this.repo.markItemResolved(itemLike.id, resolved.normalizedUrl);
+      this.attemptHooks.onResolvedMetadata(resolved);
+
+      const seekSeconds = this.consumePendingSeek(defaultSeek);
+      this.setPlaybackOffset(seekSeconds);
+
+      const process = this.ffmpeg.spawnForSource(resolved.streamUrl, seekSeconds);
+      this.activeProcess = process;
+      this.notifyStateChanged();
+
+      let chunksSent = 0;
+      let bytesSent = 0;
+      let firstChunk = true;
+      const chunkSize = this.chunkSize;
+      const stdout = process.stdout;
+      const collect = async (size: number): Promise<Buffer> => {
+        if (stdout.readableLength > 0) return (stdout.read(size) as Buffer) ?? Buffer.alloc(0);
+        if (!stdout.readable) return Buffer.alloc(0);
+        return await new Promise<Buffer>((resolveChunk) => {
+          const onReadable = () => {
+            cleanup();
+            resolveChunk((stdout.read(size) as Buffer) ?? Buffer.alloc(0));
+          };
+          const onEnd = () => {
+            cleanup();
+            resolveChunk(Buffer.alloc(0));
+          };
+          const cleanup = () => {
+            stdout.off("readable", onReadable);
+            stdout.off("end", onEnd);
+          };
+          stdout.on("readable", onReadable);
+          stdout.on("end", onEnd);
+        });
+      };
+
+      for (;;) {
+        if (!this.running) throw new InterruptedError("stop");
+        if (this.interruptRequested) {
+          const reason = this.consumeInterrupt();
+          throw new InterruptedError(reason);
+        }
+        const readStarted = this.clock();
+        const chunk = await collect(chunkSize);
+        const readSeconds = this.clock() - readStarted;
+        if (chunk.length > 0 && readSeconds >= 0.3) {
+          console.warn(
+            `Slow ffmpeg read while streaming track_id=${itemLike.id} attempt=${attempt} chunk_index=${chunksSent} read_seconds=${readSeconds.toFixed(3)}`,
+          );
+        }
+        if (chunk.length === 0) break;
+        if (firstChunk) {
+          if (silenceHandle) {
+            this.attemptHooks.stopTransitionSilence(silenceHandle);
+          }
+          firstChunk = false;
+        }
+        this.segmenter.write(chunk);
+        chunksSent += 1;
+        bytesSent += chunk.length;
+      }
+
+      if (this.interruptRequested) throw new InterruptedError(this.consumeInterrupt());
+
+      const returnCode = await process.returnCode();
+      const stderrText = process.stderrBuffer();
+      const elapsed = Math.max(0, this.clock() - startedAt);
+      const expected = expectedDurationOf(probedDuration, resolved.durationSeconds, itemLike.durationSeconds);
+      const verdict = classifyAttemptOf(returnCode, elapsed, expected, stderrText);
+      return {
+        outcome: verdict.outcome,
+        reason: verdict.reason,
+        chunksSent,
+        bytesSent,
+        elapsedSeconds: elapsed,
+        expectedSeconds: expected,
+        seekSeconds,
+      };
+    } finally {
+      if (silenceHandle) this.attemptHooks.stopTransitionSilence(silenceHandle);
+      this.killActiveProcess();
+    }
+  }
+
+  // ------------------------------------------------------ test entry points
+  // Thin public wrappers so control-flow tests can drive one item without
+  // starting the background loop (parity with the Python tests' _play_item).
+
+  /** @internal test hook */
+  async playItemForTest(itemId: number): Promise<void> {
+    // Tests drive one item without the background loop; keep the loop-guard
+    // satisfied for the duration of the call.
+    const wasRunning = this.running;
+    this.running = true;
+    try {
+      await this.ensureResolved(itemId, this.repo.getItem(itemId)?.sourceUrl ?? "");
+      await this.playItem(itemId);
+    } finally {
+      this.running = wasRunning;
+    }
+  }
+
+  /** @internal test hook */
+  seekInit(seconds: number): void {
+    this.pendingSeekSeconds = seconds;
+  }
+
+  /** @internal test hook */
+  get userStoppedForTest(): boolean {
+    return this.userStopped;
+  }
+
+  /** @internal test hook */
+  set userStoppedForTest(value: boolean) {
+    this.userStopped = value;
+  }
+
+  /** @internal test hook */
+  clockNow(): number {
+    return this.clock();
+  }
+
+  /** @internal test hook */
+  hooksForTest(): { writeChunk: (chunk: Buffer) => void } {
+    return this.attemptHooks;
+  }
+
   /** Pre-seed the resolved-track cache so the sync runner can consume it. */
   async ensureResolved(itemId: number, sourceUrl: string, forceRefresh = false): Promise<ResolvedTrackLike> {
     const cached = this.resolvedTrackCache.get(itemId);
@@ -710,55 +820,24 @@ export class StreamEngine {
   }
 }
 
-/** Bridges an async stdout stream into the runner's synchronous read() protocol. */
-function makeSyncProc(proc: SpawnedProcess, chunkSize: number): unknown {
-  const stdout = proc.stdout;
-  const bufferQueue: Buffer[] = [];
-  let ended = false;
-  stdout.on("data", (chunk: Buffer) => bufferQueue.push(chunk));
-  stdout.on("end", () => {
-    ended = true;
-  });
-  return {
-    stdout: {
-      read(size: number): Buffer | null {
-        let available = bufferQueue.reduce((n, c) => n + c.length, 0);
-        while (available < size && !ended) {
-          // Drain synchronously from the internal buffer only; the stream
-          // pushes asynchronously but the engine's idle/attempt loops poll.
-          break;
-        }
-        const out: Buffer[] = [];
-        let taken = 0;
-        while (bufferQueue.length > 0 && taken < size) {
-          const next = bufferQueue[0]!;
-          if (taken + next.length <= size) {
-            out.push(bufferQueue.shift()!);
-            taken += next.length;
-          } else {
-            const slice = next.subarray(0, size - taken);
-            bufferQueue[0] = next.subarray(size - taken);
-            out.push(slice);
-            taken = size;
-          }
-        }
-        if (out.length === 0) return ended ? Buffer.alloc(0) : null;
-        return Buffer.concat(out);
-      },
-      get readableEnded() {
-        return ended;
-      },
-    },
-    poll(): number | null {
-      return proc.process.exitCode;
-    },
-    get returncode(): number | null {
-      return proc.process.exitCode;
-    },
-    stderr: { read: () => Buffer.from("") },
-  };
+function expectedDurationOf(probed: number | null, resolved: number | null, queued: number | null): number {
+  for (const value of [probed, resolved, queued]) {
+    if (value && value > 0) return value;
+  }
+  return 0;
 }
 
-void resolvePath;
-void ({} as TrackIdentity);
-void newQueueItemFields;
+function classifyAttemptOf(
+  returnCode: number | null,
+  elapsed: number,
+  expected: number,
+  stderrText: string,
+): { outcome: string; reason: string | null } {
+  if (returnCode !== null && returnCode !== 0) {
+    return { outcome: ATTEMPT_RETRY_FFMPEG, reason: `ffmpeg exited with status ${returnCode}` };
+  }
+  if (expected > 30 && elapsed < expected * 0.9 && stderrIndicatesStreamFailure(stderrText)) {
+    return { outcome: "premature_end", reason: "upstream stream ended early after transport failure" };
+  }
+  return { outcome: ATTEMPT_COMPLETED, reason: null };
+}

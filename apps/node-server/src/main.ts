@@ -1,0 +1,47 @@
+/**
+ * Composition root — builds and starts the Node server.
+ * Env contract mirrors the Python AIRWAVE_* settings.
+ */
+
+import { mkdirSync } from "node:fs";
+import { dirname, resolve as resolvePath } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { createApp } from "./app.js";
+import { YtDlpService } from "./yt-dlp-service.js";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const env = process.env;
+
+const dbPath = env.AIRWAVE_DB_URL?.replace(/^sqlite\+pysqlite:\/\/\//, "").replace(/^\/\//, "") ?? "./data/airwave.db";
+mkdirSync(dirname(dbPath) || ".", { recursive: true });
+
+const ytDlp = new YtDlpService(env.AIRWAVE_YT_DLP_PATH ?? "yt-dlp");
+
+const app = createApp({
+  dbPath,
+  ffmpegPath: env.AIRWAVE_FFMPEG_PATH ?? "ffmpeg",
+  ffprobePath: env.AIRWAVE_FFPROBE_PATH ?? "ffprobe",
+  hlsDirectory: env.AIRWAVE_HLS_DIR,
+  staticDir: env.AIRWAVE_STATIC_DIR ?? resolvePath(here, "../server/app/static/dist"),
+  trackSource: ytDlp,
+});
+
+const port = Number(env.AIRWAVE_PORT ?? 8000);
+const host = env.AIRWAVE_HOST ?? "0.0.0.0";
+
+app.start(port, host).then(
+  () => console.log(`Airwave Node server listening on http://${host}:${port}`),
+  (error) => {
+    console.error("Failed to start server", error);
+    process.exit(1);
+  },
+);
+
+const shutdown = async (signal: string) => {
+  console.log(`${signal} received; shutting down`);
+  await app.stop().catch(() => {});
+  process.exit(0);
+};
+process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on("SIGTERM", () => void shutdown("SIGTERM"));

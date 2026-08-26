@@ -18,7 +18,8 @@ const dbPath = (() => {
   // Accept python-style URLs (sqlite:///path) and plain paths; better-sqlite3
   // needs a filesystem path, never a scheme.
   const stripped = raw.replace(/^sqlite(\+pysqlite)?:\/\//, "").replace(/^sqlite:/, "");
-  return stripped.startsWith("/") ? stripped : `./${stripped.replace(/^\.\//, "")}`;
+  const normalized = stripped.replace(/\/(\.\/)+/g, "/").replace(/^\.\/+/, "");
+  return normalized.startsWith("/") ? normalized : `./${normalized}`;
 })();
 mkdirSync(dirname(dbPath) || ".", { recursive: true });
 

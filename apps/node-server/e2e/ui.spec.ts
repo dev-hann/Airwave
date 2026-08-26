@@ -74,13 +74,15 @@ test.describe("UI shell", () => {
       .poll(async () => (await (await request.get("/api/state")).json()).mode, { timeout: 45_000 })
       .toBe("playing");
 
-    // Leave the server playable: reset + clear.
+    // Leave the server usable: stop → play clears the user-stop flag (the
+    // v2.2.0 incident's wedge). Playback may legitimately continue (resume
+    // semantics); the NEXT test's hermetic preamble (stop + clear + idle
+    // assert) handles any residue, so no over-assertion here.
     await request.post("/api/playback/stop", {});
-    await request.post("/api/queue/clear", {});
     await request.post("/api/playback/play", {});
     await expect
       .poll(async () => (await (await request.get("/api/state")).json()).mode, { timeout: 15_000 })
-      .toBe("idle");
+      .toBe("playing");
   }, 120_000);
   });
 
@@ -119,7 +121,7 @@ test.describe("UI shell", () => {
       await request.post("/api/playback/play", {});
       await expect
         .poll(async () => (await (await request.get("/api/state")).json()).mode, { timeout: 15_000 })
-        .toBe("idle");
+        .toBe("playing");
     });
   });
 });

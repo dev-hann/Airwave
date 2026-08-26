@@ -8,6 +8,10 @@
   "exports": {
     ".": "./src/index.js",
     "./enums": "./src/enums.js",
+    "./contracts": "./src/contracts.ts",
     "./generated/schema.d.ts": "./src/generated/schema.d.ts"
+  },
+  "dependencies": {
+    "zod": "^3.25.0"
   }
 }

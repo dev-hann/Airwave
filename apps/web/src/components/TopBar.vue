@@ -21,7 +21,7 @@
         <UInput
           v-model="unifiedInput"
           type="text"
-          placeholder="Search or paste URL (YouTube, Spotify playlist, or direct MP3/audio link)…"
+          placeholder="Search or paste URL (YouTube video/playlist, or direct MP3/audio link)…"
           class="h-10 w-full min-w-0 flex-1 text-sm sm:min-w-[400px] sm:max-w-[800px]"
           >
           
@@ -53,7 +53,7 @@
               v-if="showUrlActionDropdown"
               :items="actionDropdownItems"
               :ui="{ separator: 'hidden' }"
-              @update:open="(open) => !open && resetSearch()"
+              @update:open="(open: boolean) => !open && resetSearch()"
             >
               <template #playlist-filter>
                 <PlaylistSelectorFilter
@@ -137,7 +137,7 @@
             <input
               v-model="unifiedInput"
               type="text"
-              placeholder="Search or paste URL (YouTube, Spotify playlist, or direct MP3/audio link)…"
+              placeholder="Search or paste URL (YouTube video/playlist, or direct MP3/audio link)…"
               class="h-11 w-full rounded-md border px-3 text-sm surface-input"
             />
             <div class="flex w-full">
@@ -149,7 +149,7 @@
                   v-if="showUrlActionDropdown"
                   :items="actionDropdownItems"
                   :ui="{ separator: 'hidden' }"
-                  @update:open="(open) => !open && resetSearch()"
+                  @update:open="(open: boolean) => !open && resetSearch()"
                 >
                   <template #playlist-filter>
                     <PlaylistSelectorFilter
@@ -207,7 +207,7 @@ const playlistsStore = usePlaylistsStore();
 const { queue } = storeToRefs(queueStore);
 const { playlists } = storeToRefs(playlistsStore);
 const { addUrl, playUrl } = queueStore;
-const { importPlaylistUrl, startSpotifyImportFromUrl, importPlaylistIntoPlaylist } = playlistsStore;
+const { importPlaylistUrl, importPlaylistIntoPlaylist } = playlistsStore;
 const { playlistSearchTerm, filteredPlaylists, resetSearch } = usePlaylistSelector(playlists);
 const uiStore = useUiStore();
 const { searchText, onSearchTextChange, onSearchSubmit } = uiStore;
@@ -269,14 +269,6 @@ function isCanonicalPlaylistPath(rawUrl: string): boolean {
   return parsed.pathname.includes("/playlist") && !!parsed.searchParams.get("list");
 }
 
-function isSpotifyPlaylistUrl(rawUrl: string): boolean {
-  const parsed = parseInputUrl(rawUrl);
-  if (!parsed) return false;
-  const host = parsed.hostname.toLowerCase();
-  if (host !== "open.spotify.com" && host !== "www.spotify.com") return false;
-  return /^\/playlist\//i.test(parsed.pathname);
-}
-
 function getCanonicalPlaylistUrl(rawUrl: string): string {
   const parsed = parseInputUrl(rawUrl);
   if (!parsed) return rawUrl;
@@ -300,12 +292,11 @@ const isUrlInput = computed(
   () => unifiedInput.value.trim().toLowerCase().startsWith("http"),
 );
 
-type ActionContext = "single" | "spotify-playlist" | "canonical-playlist" | "start-radio" | "playlist-capable";
+type ActionContext = "single" | "canonical-playlist" | "start-radio" | "playlist-capable";
 
 const actionContext = computed<ActionContext>(() => {
   const rawUrl = unifiedInput.value.trim();
   if (!rawUrl) return "single";
-  if (isSpotifyPlaylistUrl(rawUrl)) return "spotify-playlist";
   if (isCanonicalPlaylistPath(rawUrl)) return "canonical-playlist";
   if (hasPlaylistId(rawUrl) && isStartRadioUrl(rawUrl)) return "start-radio";
   if (hasPlaylistId(rawUrl)) return "playlist-capable";
@@ -313,9 +304,6 @@ const actionContext = computed<ActionContext>(() => {
 });
 
 const defaultActionId = computed<ActionId>(() => {
-  if (actionContext.value === "spotify-playlist") {
-    return ACTION_IDS.IMPORT_PLAYLIST;
-  }
   const hasQueueItems = Array.isArray(queue.value) && queue.value.length > 0;
   if (hasQueueItems) {
     if (actionContext.value === "canonical-playlist") {
@@ -334,9 +322,6 @@ interface ActionEntry {
 }
 
 const availableActions = computed<ActionEntry[]>(() => {
-  if (actionContext.value === "spotify-playlist") {
-    return [];
-  }
   let base: ActionEntry[] = [
     { id: ACTION_IDS.PLAY_URL, label: "Play", icon: "i-bi-play-fill" },
     { id: ACTION_IDS.ADD_URL, label: "Queue", icon: "i-bi-music-note-list" },
@@ -364,16 +349,13 @@ const availableActions = computed<ActionEntry[]>(() => {
 });
 
 const primaryActionLabel = computed(() => {
-  if (actionContext.value === "spotify-playlist") return "Import playlist";
   if (defaultActionId.value === ACTION_IDS.QUEUE_PLAYLIST) return "Queue Playlist";
   if (defaultActionId.value === ACTION_IDS.ADD_URL) return "Queue";
   if (defaultActionId.value === ACTION_IDS.PLAY_PLAYLIST) return "Play Playlist";
   return "Play";
 });
 
-const showUrlActionDropdown = computed(
-  () => isUrlInput.value && actionContext.value !== "spotify-playlist",
-);
+const showUrlActionDropdown = computed(() => isUrlInput.value);
 
 const isPlaylistOrRadioContext = computed(
   () =>
@@ -432,11 +414,7 @@ function runAction(actionId: ActionId, closeAfter = false, urlOverride: string |
   } else if (actionId === ACTION_IDS.QUEUE_PLAYLIST) {
     addUrl(urlForPlaylist);
   } else if (actionId === ACTION_IDS.IMPORT_PLAYLIST) {
-    if (isSpotifyPlaylistUrl(rawUrl)) {
-      startSpotifyImportFromUrl(rawUrl.trim(), router);
-    } else {
-      importPlaylistUrl(urlForPlaylist);
-    }
+    importPlaylistUrl(urlForPlaylist);
   } else if (actionId === ACTION_IDS.ADD_URL) {
     addUrl(urlForSingle);
   } else {

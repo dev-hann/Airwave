@@ -31,7 +31,7 @@
       <UDropdownMenu
         :items="dropdownItems"
         :ui="{ separator: 'hidden' }"
-        @update:open="(open) => !open && resetSearch()"
+        @update:open="(open: boolean) => !open && resetSearch()"
       >
         <template #playlist-filter>
           <PlaylistSelectorFilter

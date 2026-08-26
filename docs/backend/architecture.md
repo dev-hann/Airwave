@@ -45,7 +45,6 @@ Queue (SQLite) ──▶ StreamEngine (worker thread)
 | `db/repository/` (package) | ~950 | Facade `Repository` composing store mixins: base (plumbing + shared `_queue_lock`), migrations, queue_store, history_store, playlist_store, settings_store. Import surface frozen (`Repository`, `NewQueueItem`, `NewPlaylistEntry`) |
 | `services/binaries_service.py` | ~715 | yt-dlp/ffmpeg/ffprobe/deno download, install, update |
 | `services/playlist_service.py` | ~687 | URL ingestion, playlist preview/import, queue construction |
-| `services/spotify_import_service.py` | ~506 | Spotify → YouTube matching |
 | `services/yt_dlp_service.py` | ~440 | Metadata, source resolution, playlist inspection |
 | `services/ffmpeg_pipeline.py` | ~352 | ffmpeg/ffprobe spawn, transcode, probe |
 | `services/source_resolver.py` | ~313 | Local media allowlist + direct HTTP media |
@@ -57,7 +56,7 @@ Queue (SQLite) ──▶ StreamEngine (worker thread)
 ## API surface
 
 - `apps/node-server/src/app.ts` is the Express composition: domain-grouped route handlers (health/state/playback/queue/history/playlists/settings + HLS endpoints + ws). Handlers stay thin — validate → stores/engine → serialize.
-- Route domains live in `app/api/{system,binaries,settings,queue,media,playback,history,playlist,playlists,ws,search,spotify}/`.
+- Route handlers live grouped in `apps/node-server/src/app.ts` (health/state/playback/queue/search/media/playlists/import/history/settings + HLS).
 - Shared helpers: `app/api/common/` — `models.py` (Pydantic schemas), `serializers.py` (`_serialize_*`, UI snapshot), `dependencies.py` (`_services(request)` accessor). (`responses.py` was removed with the raw-MP3 endpoint.)
 - 73 endpoints under `/api` (72 HTTP + 1 WS) plus root routes in `app/api/root.py` (`/`, `/stream/live.m3u8`, `/stream/{segment}`).
 - OpenAPI docs at `/docs` (auto-generated).

@@ -24,11 +24,15 @@ test.describe("UI shell", () => {
 
   test("queue add renders the track in the UI", async ({ page, request }) => {
     await page.goto("/");
-    await request.post("/api/queue/add", { data: { url: "https://example.com/e2e-track" } });
-    // Queue items surface before resolution completes: "Up next" preview lists
-    // the source URL, the sidebar queue lists the row. Either proves the WS
-    // snapshot reached the UI.
-    await expect(page.getByText("https://example.com/e2e-track").first()).toBeVisible({ timeout: 15_000 });
+    await request.post("/api/queue/add", { data: { url: "https://www.youtube.com/watch?v=e2e-track" } });
+    // The stub resolves immediately, so the resolved title reaches the UI via
+    // the WS snapshot ("Up next" preview + sidebar queue).
+    await expect(page.getByText("E2E Test Track").first()).toBeVisible({ timeout: 15_000 });
+  });
+
+  test("search page renders results from /api/search", async ({ page }) => {
+    await page.goto("/search?q=anything");
+    await expect(page.getByText("E2E Search Hit").first()).toBeVisible({ timeout: 15_000 });
   });
 
   test("deep link renders the SPA (history-mode fallback)", async ({ page }) => {
@@ -43,7 +47,7 @@ test.describe("UI shell", () => {
     test("engine plays and audio buffers", async ({ page, request }) => {
       await page.goto("/");
       await request.post("/api/queue/clear", {});
-      await request.post("/api/queue/add", { data: { url: "https://example.com/e2e-play" } });
+      await request.post("/api/queue/add", { data: { url: "https://www.youtube.com/watch?v=e2e-play" } });
       await expect
         .poll(async () => (await (await request.get("/api/state")).json()).mode, { timeout: 30_000 })
         .toBe("playing");

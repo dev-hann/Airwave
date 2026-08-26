@@ -25,6 +25,7 @@ export const LIKED_SONGS_SOURCE_URL = "custom://liked_songs";
 
 export interface NewQueueItem extends TrackIdentity {
   playlistId?: string | null;
+  channel?: string | null;
 }
 
 export type QueueStatusValue = "queued" | "playing" | "completed" | "skipped" | "failed";
@@ -176,6 +177,7 @@ export class Repository {
             normalizedUrl: item.normalizedUrl,
             sourceType: item.sourceType,
             title: item.title ?? null,
+            channel: item.channel ?? null,
             durationSeconds: item.durationSeconds ?? null,
             thumbnailUrl: item.thumbnailUrl ?? null,
             queuePosition: position++,
@@ -268,26 +270,34 @@ export class Repository {
   }
 
   private reorderInternal(pairs: Array<{ itemId: number; newPosition: number }>): boolean {
+    if (pairs.length === 0) return true;
     const now = new Date().toISOString();
     this.sqlite.transaction(() => {
-      // Park positions negative to dodge the uniqueness window during shifting.
-      for (const { itemId, newPosition } of pairs) {
-        this.db.update(queueItems).set({ queuePosition: -newPosition, updatedAt: now }).where(eq(queueItems.id, itemId)).run();
-      }
-      for (const { itemId, newPosition } of pairs) {
-        this.db.update(queueItems).set({ queuePosition: newPosition, updatedAt: now }).where(eq(queueItems.id, itemId)).run();
-      }
-      // Close gaps for items outside the reordered set.
-      const remaining = this.db
-        .select({ id: queueItems.id })
+      const all = this.db
+        .select()
         .from(queueItems)
-        .where(and(ne(queueItems.status, "completed"), sql`${queueItems.queuePosition} > ${pairs.length}`))
+        .where(ne(queueItems.status, "completed"))
         .orderBy(asc(queueItems.queuePosition))
         .all();
-      let next = pairs.length + 1;
-      for (const row of remaining) {
-        this.db.update(queueItems).set({ queuePosition: next++, updatedAt: now }).where(eq(queueItems.id, row.id)).run();
+      // Target order: apply each move to the current sequence, then re-pack 1..n.
+      const order = all.map((row) => row.id);
+      for (const { itemId, newPosition } of pairs) {
+        const index = order.indexOf(itemId);
+        if (index === -1) continue;
+        order.splice(index, 1);
+        const target = Math.max(0, Math.min(newPosition - 1, order.length));
+        order.splice(target, 0, itemId);
       }
+      // Keep untouched tail items in their relative order (already the case).
+      // Park negative, then assign final positions.
+      for (const id of order) {
+        this.db.update(queueItems).set({ queuePosition: -1, updatedAt: now }).where(eq(queueItems.id, id)).run();
+      }
+      let position = 0;
+      for (const id of order) {
+        this.db.update(queueItems).set({ queuePosition: ++position, updatedAt: now }).where(eq(queueItems.id, id)).run();
+      }
+      // Items outside the working set (completed) keep their positions.
     })();
     return true;
   }
@@ -443,6 +453,239 @@ export class Repository {
       .where(and(eq(playlistEntries.playlistId, playlistId), conditions.length === 1 ? conditions[0]! : orJoin(conditions)))
       .get();
     return (row?.n ?? 0) > 0;
+  }
+
+  /** Dedup keys for a playlist: (normalizedUrl, providerItemId) pairs. */
+  getPlaylistDedupKeys(playlistId: string): Set<string> {
+    const rows = this.db
+      .select({ normalizedUrl: playlistEntries.normalizedUrl, providerItemId: playlistEntries.providerItemId })
+      .from(playlistEntries)
+      .where(eq(playlistEntries.playlistId, playlistId))
+      .all();
+    const keys = new Set<string>();
+    for (const row of rows) {
+      if (row.normalizedUrl) keys.add(`url:${row.normalizedUrl}`);
+      if (row.providerItemId) keys.add(`pid:${row.providerItemId}`);
+    }
+    return keys;
+  }
+
+  /** Batch insert entries at the tail; returns inserted rows. */
+  addPlaylistEntries(
+    playlistId: string,
+    entries: Array<{ sourceUrl: string; normalizedUrl: string; provider?: string | null; providerItemId?: string | null; title?: string | null; channel?: string | null; durationSeconds?: number | null; thumbnailUrl?: string | null }>,
+  ): schema.PlaylistEntryRow[] {
+    if (entries.length === 0) return [];
+    return this.sqlite.transaction(() => {
+      let maxPos = this.db
+        .select({ max: sql<number | null>`MAX(${playlistEntries.position})` })
+        .from(playlistEntries)
+        .where(eq(playlistEntries.playlistId, playlistId))
+        .get()?.max ?? 0;
+      const created: schema.PlaylistEntryRow[] = [];
+      for (const entry of entries) {
+        const row = this.db
+          .insert(playlistEntries)
+          .values({
+            playlistId,
+            sourceUrl: entry.sourceUrl,
+            provider: entry.provider ?? null,
+            providerItemId: entry.providerItemId ?? null,
+            normalizedUrl: entry.normalizedUrl,
+            title: entry.title ?? null,
+            channel: entry.channel ?? null,
+            durationSeconds: entry.durationSeconds ?? null,
+            thumbnailUrl: entry.thumbnailUrl ?? null,
+            position: ++maxPos,
+          })
+          .returning()
+          .get();
+        if (row) created.push(row);
+      }
+      this.bumpEntryCount(playlistId);
+      return created;
+    })();
+  }
+
+  /** Replace all entries of a playlist with the given list (import semantics). */
+  replacePlaylistEntries(
+    playlistId: string,
+    entries: Array<{ sourceUrl: string; normalizedUrl: string; provider?: string | null; providerItemId?: string | null; title?: string | null; channel?: string | null; durationSeconds?: number | null; thumbnailUrl?: string | null }>,
+  ): schema.PlaylistEntryRow[] {
+    return this.sqlite.transaction(() => {
+      this.db.delete(playlistEntries).where(eq(playlistEntries.playlistId, playlistId)).run();
+      let position = 0;
+      const created: schema.PlaylistEntryRow[] = [];
+      for (const entry of entries) {
+        const row = this.db
+          .insert(playlistEntries)
+          .values({
+            playlistId,
+            sourceUrl: entry.sourceUrl,
+            provider: entry.provider ?? null,
+            providerItemId: entry.providerItemId ?? null,
+            normalizedUrl: entry.normalizedUrl,
+            title: entry.title ?? null,
+            channel: entry.channel ?? null,
+            durationSeconds: entry.durationSeconds ?? null,
+            thumbnailUrl: entry.thumbnailUrl ?? null,
+            position: ++position,
+          })
+          .returning()
+          .get();
+        if (row) created.push(row);
+      }
+      this.bumpEntryCount(playlistId);
+      return created;
+    })();
+  }
+
+  getPlaylistEntry(entryId: number): schema.PlaylistEntryRow | null {
+    return this.db.select().from(playlistEntries).where(eq(playlistEntries.id, entryId)).get() ?? null;
+  }
+
+  /** Move an entry to a new 1-based position within its playlist, closing gaps. */
+  reorderPlaylistEntry(entryId: number, newPosition: number): boolean {
+    const entry = this.getPlaylistEntry(entryId);
+    if (!entry) return false;
+    this.sqlite.transaction(() => {
+      const siblings = this.listPlaylistEntries(entry.playlistId).filter((row) => row.id !== entryId);
+      const target = Math.max(1, Math.min(newPosition, siblings.length + 1));
+      const ordered = [...siblings.slice(0, target - 1), entry, ...siblings.slice(target - 1)];
+      let position = 0;
+      const now = new Date().toISOString();
+      for (const row of ordered) {
+        this.db.update(playlistEntries).set({ position: ++position, updatedAt: now }).where(eq(playlistEntries.id, row.id)).run();
+      }
+    })();
+    return true;
+  }
+
+  /** Queue all entries of a playlist in order. */
+  queuePlaylist(playlistId: string, replace = false): schema.QueueItemRow[] {
+    return this.sqlite.transaction(() => {
+      if (replace) this.clearQueue();
+      const entries = this.listPlaylistEntries(playlistId);
+      if (entries.length === 0) return [];
+      return this.enqueueItems(
+        entries.map((entry) => ({
+          sourceUrl: entry.sourceUrl,
+          provider: entry.provider,
+          providerItemId: entry.providerItemId,
+          normalizedUrl: entry.normalizedUrl,
+          sourceType: entry.provider ?? "video",
+          title: entry.title,
+          channel: entry.channel,
+          durationSeconds: entry.durationSeconds,
+          thumbnailUrl: entry.thumbnailUrl,
+          playlistId: entry.playlistId,
+        })),
+      );
+    })();
+  }
+
+  /** Queue a single playlist entry; null when the entry does not exist. */
+  queuePlaylistEntry(entryId: number): schema.QueueItemRow | null {
+    const entry = this.getPlaylistEntry(entryId);
+    if (!entry) return null;
+    const created = this.enqueueItems([
+      {
+        sourceUrl: entry.sourceUrl,
+        provider: entry.provider,
+        providerItemId: entry.providerItemId,
+        normalizedUrl: entry.normalizedUrl,
+        sourceType: entry.provider ?? "video",
+        title: entry.title,
+        channel: entry.channel,
+        durationSeconds: entry.durationSeconds,
+        thumbnailUrl: entry.thumbnailUrl,
+        playlistId: entry.playlistId,
+      },
+    ]);
+    return created[0] ?? null;
+  }
+
+  /** Create-or-update an imported playlist keyed by source URL. */
+  createOrUpdateImportedPlaylist(source: {
+    sourceUrl: string;
+    title: string | null;
+    channel: string | null;
+    thumbnailUrl: string | null;
+    entryCount: number;
+  }): schema.PlaylistRow {
+    const existing = this.getPlaylistBySourceUrl(source.sourceUrl);
+    const now = new Date().toISOString();
+    if (existing) {
+      const row = this.db
+        .update(playlists)
+        .set({
+          title: source.title ?? existing.title,
+          channel: source.channel ?? existing.channel,
+          thumbnailUrl: source.thumbnailUrl ?? existing.thumbnailUrl,
+          entryCount: source.entryCount,
+          updatedAt: now,
+        })
+        .where(eq(playlists.id, existing.id))
+        .returning()
+        .get();
+      if (row) return row;
+      return existing;
+    }
+    const row = this.db
+      .insert(playlists)
+      .values({
+        id: crypto.randomUUID(),
+        sourceUrl: source.sourceUrl,
+        title: source.title,
+        channel: source.channel,
+        thumbnailUrl: source.thumbnailUrl,
+        entryCount: source.entryCount,
+      })
+      .returning()
+      .get();
+    if (!row) throw new Error("playlist insert failed");
+    return row;
+  }
+
+  /** Replace the non-completed queue with the given items (play-now semantics). */
+  replaceQueuedItems(items: NewQueueItem[]): schema.QueueItemRow[] {
+    return this.sqlite.transaction(() => {
+      this.clearQueue();
+      return this.enqueueItems(items);
+    })();
+  }
+
+  /** Sidebar playlist order (stored as a JSON id array in settings). */
+  getSidebarPlaylistOrder(): string[] {
+    const raw = this.getSetting("sidebar_playlist_order");
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      return Array.isArray(parsed) ? parsed.map(String) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  setSidebarPlaylistOrder(ids: string[]): void {
+    this.setSetting("sidebar_playlist_order", JSON.stringify(ids));
+  }
+
+  playlistLastPlayedAtById(): Map<string, string> {
+    // Latest play_history row per playlist via the queue_items bridge.
+    const rows = this.db
+      .select({ playlistId: queueItems.playlistId, finishedAt: playHistory.finishedAt })
+      .from(playHistory)
+      .innerJoin(queueItems, eq(playHistory.queueItemId, queueItems.id))
+      .orderBy(desc(playHistory.id))
+      .all();
+    const map = new Map<string, string>();
+    for (const row of rows) {
+      if (row.playlistId && row.finishedAt && !map.has(row.playlistId)) {
+        map.set(row.playlistId, row.finishedAt);
+      }
+    }
+    return map;
   }
 
   private bumpEntryCount(playlistId: string): void {

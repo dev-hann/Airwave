@@ -27,7 +27,6 @@ Canonical vocabulary for code, docs, and discussions. Use these terms exactly; w
   - `custom` — locally curated entries.
   - `remote_youtube` — mirrors a YouTube playlist (imported by URL).
 - **Duplicate check** — pre-add comparison that may open the duplicate modal (add all vs. add only new tracks). One shared helper (`withDuplicateCheck`) owns the flow.
-- **Import** — ingesting a YouTube playlist URL or a Spotify playlist (matched to YouTube tracks; see `docs/maintenance.md` for what was removed).
 
 ## Frontend state
 

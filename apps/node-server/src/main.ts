@@ -24,6 +24,10 @@ const dbPath = (() => {
 mkdirSync(dirname(dbPath) || ".", { recursive: true });
 
 const ytDlp = new YtDlpService(env.AIRWAVE_YT_DLP_PATH ?? "yt-dlp");
+const localMediaRoots = (env.AIRWAVE_LOCAL_MEDIA_ROOTS ?? "")
+  .split(",")
+  .map((part) => part.trim())
+  .filter((part) => part.length > 0);
 
 const app = createApp({
   dbPath,
@@ -31,7 +35,11 @@ const app = createApp({
   ffprobePath: env.AIRWAVE_FFPROBE_PATH ?? "ffprobe",
   hlsDirectory: env.AIRWAVE_HLS_DIR,
   staticDir: env.AIRWAVE_STATIC_DIR ?? resolvePath(here, "../static-dist"),
+  localMediaRoots,
   trackSource: ytDlp,
+  search: (query, limit) => ytDlp.search(query, limit),
+  previewPlaylist: (url) => ytDlp.previewPlaylist(url),
+  isPlaylistUrl: (url) => ytDlp.isPlaylistUrl(url),
 });
 
 const port = Number(env.AIRWAVE_PORT ?? 8000);

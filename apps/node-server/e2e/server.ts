@@ -30,6 +30,19 @@ const app = createApp({
       isLive: false,
     }),
   },
+  search: async () => [
+    {
+      provider: "youtube",
+      provider_item_id: "e2evid",
+      source_url: "https://www.youtube.com/watch?v=e2evid",
+      normalized_url: "https://www.youtube.com/watch?v=e2evid",
+      title: "E2E Search Hit",
+      channel: "E2E Channel",
+      duration_seconds: 90,
+      thumbnail_url: null,
+    },
+  ],
+  isPlaylistUrl: (url) => url.includes("list="),
 });
 
 const port = Number(process.env.AIRWAVE_E2E_PORT ?? 8917);

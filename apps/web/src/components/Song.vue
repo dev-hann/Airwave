@@ -41,7 +41,7 @@
       class="shrink-0 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:any-pointer-coarse:opacity-100"
       @click.stop
     >
-      <UDropdownMenu :items="dropdownItems" :ui="{ separator: 'hidden' }" @update:open="(open) => !open && resetSearch()">
+      <UDropdownMenu :items="dropdownItems" :ui="{ separator: 'hidden' }" @update:open="(open: boolean) => !open && resetSearch()">
         <template #playlist-filter>
           <PlaylistSelectorFilter
             v-model="playlistSearchTerm"

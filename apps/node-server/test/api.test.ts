@@ -71,7 +71,8 @@ describe("API", () => {
   it("queue add/list/remove roundtrip", async () => {
     const add = await request(base()).post("/api/queue/add").send({ url: "https://youtu.be/abc" });
     expect(add.status).toBe(200);
-    expect(add.body.queued).toBe(1);
+    expect(add.body.type).toBe("video");
+    expect(add.body.count).toBe(1);
 
     const list = await request(base()).get("/api/queue");
     expect(list.status).toBe(200);
@@ -111,7 +112,8 @@ describe("API", () => {
       title: "Song X",
     });
     expect(entry.status).toBe(200);
-    expect(entry.body.thumbnail_url).toBe("https://i.ytimg.com/vi/xyz/hqdefault.jpg");
+    // Python wire shape: {id, playlist_id, title, source_url, position}.
+    expect(entry.body).toMatchObject({ playlist_id: playlistId, position: 1 });
 
     const entries = await request(base()).get(`/api/playlists/${playlistId}/entries`);
     expect(entries.body).toHaveLength(1);

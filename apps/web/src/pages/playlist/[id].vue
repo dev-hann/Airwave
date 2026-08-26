@@ -87,7 +87,7 @@
             </UButton>
           </UTooltip>
         </div>
-        <UDropdownMenu :items="dropdownItems" :ui="{ separator: 'hidden' }" @update:open="(open) => !open && resetSearch()">
+        <UDropdownMenu :items="dropdownItems" :ui="{ separator: 'hidden' }" @update:open="(open: boolean) => !open && resetSearch()">
           <template #playlist-filter>
             <PlaylistSelectorFilter
               v-model="playlistSearchTerm"

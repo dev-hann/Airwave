@@ -17,10 +17,6 @@ interface DuplicateCheckResult {
   skipped?: number;
 }
 
-interface SpotifyImportStartResult {
-  playlist_id?: string;
-}
-
 interface BatchEntryInput {
   source_url: string;
   normalized_url: string;
@@ -144,19 +140,6 @@ export const usePlaylistsStore = defineStore("playlists", () => {
       notifications.notifySuccess("Playlist imported", `${result.count || 0} items saved to playlist library.`);
     } catch (error) {
       notifications.notifyError("Could not import playlist", error);
-    }
-  }
-
-  async function startSpotifyImportFromUrl(url: string, router?: Router): Promise<void> {
-    try {
-      const result = await postJson<SpotifyImportStartResult>("/api/spotify/import", { url });
-      const pid = result?.playlist_id;
-      if (pid && router) {
-        notifications.notifySuccess("Spotify playlist", "Matching tracks from providers…");
-        await router.push(`/spotify-import/${pid}`);
-      }
-    } catch (error) {
-      notifications.notifyError("Could not import Spotify playlist", error);
     }
   }
 
@@ -402,7 +385,6 @@ export const usePlaylistsStore = defineStore("playlists", () => {
     confirmDuplicateAddAll,
     confirmDuplicateAddNewOnes,
     importPlaylistUrl,
-    startSpotifyImportFromUrl,
     importPlaylistIntoPlaylist,
     addUrlToPlaylist,
     addEntriesToPlaylist,

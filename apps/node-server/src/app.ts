@@ -16,9 +16,20 @@ import { LIKED_SONGS_SOURCE_URL, Repository } from "@airwave/db";
 
 import { FfmpegPipeline } from "./ffmpeg-pipeline.ts";
 import { HlsSegmenter } from "./hls-segmenter.ts";
+import { MediaSourceResolver } from "./media-resolver.ts";
+import { PlaylistService } from "./playlist-service.ts";
+import type { PlaylistPreview, SearchResultItem } from "./yt-dlp-service.ts";
 import { StreamEngine } from "./stream-engine.ts";
 import { UiEventBroker } from "./ui-events.ts";
-import { buildUiSnapshot, serializePlaylist, serializePlaylistEntry, serializeState, serializeQueueItem } from "./serializers.ts";
+import { buildUiSnapshot, serializePlaylist, serializePlaylistEntry, serializeQueueItem } from "./serializers.ts";
+
+const asInt = (value: unknown, fallback: number | null = null): number | null => {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : fallback;
+};
+
+const isImportMode = (value: unknown): value is "check" | "add_all" | "skip_duplicates" | undefined =>
+  value === undefined || value === "check" || value === "add_all" || value === "skip_duplicates";
 
 export interface AppOptions {
   dbPath: string;
@@ -27,10 +38,16 @@ export interface AppOptions {
   hlsDirectory?: string;
   streamPath?: string;
   staticDir?: string;
+  localMediaRoots?: string[];
   trackSource: {
     resolveVideo: (url: string, forceRefresh?: boolean) => Promise<import("@airwave/domain").ResolvedTrackLike>;
     normalizeUrl?: (url: string) => string;
   };
+  /** YouTube search (optional — injected in prod, stubbed in tests). */
+  search?: (query: string, limit: number) => Promise<SearchResultItem[]>;
+  /** Playlist preview (optional). */
+  previewPlaylist?: (url: string) => Promise<PlaylistPreview>;
+  isPlaylistUrl?: (url: string) => boolean;
 }
 
 export function createApp(options: AppOptions) {
@@ -61,6 +78,23 @@ export function createApp(options: AppOptions) {
   const streamPath = options.streamPath ?? "/stream/live.m3u8";
   const publish = () => broker.publishSnapshot();
 
+  // Ingestion services (playlist/queue flows + local media).
+  const ytDlpAdapter = {
+    isPlaylistUrl: options.isPlaylistUrl ?? (() => false),
+    previewPlaylist:
+      options.previewPlaylist ??
+      (async () => {
+        throw new Error("Playlist preview unavailable");
+      }),
+    resolveVideo: options.trackSource.resolveVideo,
+  };
+  const mediaResolver = new MediaSourceResolver(options.localMediaRoots ?? [], (url) => pipeline.probeSource(url));
+  const playlistsSvc = new PlaylistService(repo, ytDlpAdapter, mediaResolver, { publish });
+  const wrapServiceError = (res: Response, error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(/not found/i.test(message) ? 404 : 400).json({ detail: message });
+  };
+
   // ---------------------------------------------------------------- health
 
   app.get("/api/health", (_req, res) => {
@@ -76,6 +110,13 @@ export function createApp(options: AppOptions) {
   // -------------------------------------------------------------- playback
 
   app.post("/api/playback/resume", (_req, res) => {
+    const outcome = engine.resumePlayback();
+    publish();
+    res.json({ ok: true, outcome });
+  });
+
+  // Python-era alias: the web store posts /play to (re)start playback.
+  app.post("/api/playback/play", (_req, res) => {
     const outcome = engine.resumePlayback();
     publish();
     res.json({ ok: true, outcome });
@@ -133,27 +174,108 @@ export function createApp(options: AppOptions) {
     res.json(repo.listQueue().map(serializeQueueItem));
   });
 
-  app.post("/api/queue/add", (req, res) => {
+  app.post("/api/queue/add", async (req, res) => {
     const url = String(req.body?.url ?? "").trim();
     if (!url) {
       res.status(400).json({ detail: "url required" });
       return;
     }
-    const created = repo.enqueueItems([
-      {
-        sourceUrl: url,
-        provider: null,
-        providerItemId: null,
-        normalizedUrl: options.trackSource.normalizeUrl?.(url) ?? url,
-        sourceType: "video",
-        title: req.body?.title ?? null,
-        durationSeconds: req.body?.duration_seconds ?? null,
-        thumbnailUrl: req.body?.thumbnail_url ?? null,
-        playlistId: null,
-      },
-    ]);
-    publish();
-    res.json({ ok: true, queued: created.length });
+    try {
+      const result = await playlistsSvc.addUrl(url);
+      publish();
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      wrapServiceError(res, error);
+    }
+  });
+
+  app.post("/api/queue/add-local", async (req, res) => {
+    const path = String(req.body?.path ?? "").trim();
+    if (!path) {
+      res.status(400).json({ detail: "path required" });
+      return;
+    }
+    try {
+      const result = await playlistsSvc.addLocalPath(path);
+      publish();
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      wrapServiceError(res, error);
+    }
+  });
+
+  app.post("/api/queue/add-local-folder", async (req, res) => {
+    const path = String(req.body?.path ?? "").trim();
+    if (!path) {
+      res.status(400).json({ detail: "path required" });
+      return;
+    }
+    try {
+      const result = await playlistsSvc.addLocalFolder(path, req.body?.recursive !== false);
+      publish();
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      wrapServiceError(res, error);
+    }
+  });
+
+  app.post("/api/queue/play-now", async (req, res) => {
+    const url = String(req.body?.url ?? "").trim();
+    if (!url) {
+      res.status(400).json({ detail: "url required" });
+      return;
+    }
+    try {
+      const result = ytDlpAdapter.isPlaylistUrl(url)
+        ? await playlistsSvc.queuePlaylistUrl(url, true)
+        : await playlistsSvc.addUrl(url);
+      if (result.item_ids.length > 0) {
+        repo.moveItemToFront(result.item_ids[0]!);
+        engine.skip();
+      }
+      publish();
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      wrapServiceError(res, error);
+    }
+  });
+
+  app.post("/api/queue/play-now-local", async (req, res) => {
+    const path = String(req.body?.path ?? "").trim();
+    if (!path) {
+      res.status(400).json({ detail: "path required" });
+      return;
+    }
+    try {
+      const result = await playlistsSvc.addLocalPath(path);
+      if (result.item_ids.length > 0) {
+        repo.reorderQueuedItems(result.item_ids);
+        engine.skip();
+      }
+      publish();
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      wrapServiceError(res, error);
+    }
+  });
+
+  app.post("/api/queue/play-now-local-folder", async (req, res) => {
+    const path = String(req.body?.path ?? "").trim();
+    if (!path) {
+      res.status(400).json({ detail: "path required" });
+      return;
+    }
+    try {
+      const result = await playlistsSvc.addLocalFolder(path, req.body?.recursive !== false);
+      if (result.item_ids.length > 0) {
+        repo.reorderQueuedItems(result.item_ids);
+        engine.skip();
+      }
+      publish();
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      wrapServiceError(res, error);
+    }
   });
 
   app.post("/api/queue/skip", (_req, res) => {
@@ -162,6 +284,35 @@ export function createApp(options: AppOptions) {
     res.json({ ok: true });
   });
 
+  app.post("/api/queue/:id/reorder", (req, res) => {
+    const itemId = asInt(req.params.id);
+    const newPosition = asInt(req.body?.new_position);
+    if (itemId === null || newPosition === null) {
+      res.status(400).json({ detail: "id and new_position required" });
+      return;
+    }
+    if (!repo.reorderItem(itemId, newPosition)) {
+      res.status(404).json({ detail: "Queue item not found" });
+      return;
+    }
+    publish();
+    res.json({ ok: true });
+  });
+
+  app.delete("/api/queue/:id", (req, res) => {
+    const itemId = asInt(req.params.id);
+    const item = itemId !== null ? repo.getItem(itemId) : null;
+    if (!item) {
+      res.status(404).json({ detail: "Queue item not found" });
+      return;
+    }
+    const ok = repo.removeItem(itemId!);
+    if (item.status === "playing") engine.skip();
+    publish();
+    res.json({ ok });
+  });
+
+  // Legacy alias from the early Node port.
   app.post("/api/queue/remove/:id", (req, res) => {
     const ok = repo.removeItem(Number(req.params.id));
     publish();
@@ -169,9 +320,9 @@ export function createApp(options: AppOptions) {
   });
 
   app.post("/api/queue/reorder", (req, res) => {
-    const itemId = Number(req.body?.id);
-    const newPosition = Number(req.body?.new_position);
-    if (!Number.isInteger(itemId) || !Number.isInteger(newPosition)) {
+    const itemId = asInt(req.body?.id);
+    const newPosition = asInt(req.body?.new_position);
+    if (itemId === null || newPosition === null) {
       res.status(400).json({ detail: "id and new_position required" });
       return;
     }
@@ -180,10 +331,77 @@ export function createApp(options: AppOptions) {
     res.json({ ok: true });
   });
 
+  app.delete("/api/queue", (_req, res) => {
+    const hasPlaying = repo.listQueue().some((item) => item.status === "playing");
+    repo.clearQueue();
+    if (hasPlaying) engine.skip();
+    publish();
+    res.json({ ok: true });
+  });
+
   app.post("/api/queue/clear", (_req, res) => {
     const removed = repo.clearQueue();
     publish();
     res.json({ ok: true, removed });
+  });
+
+  // ----------------------------------------------------------------- search
+
+  app.get("/api/search", async (req, res) => {
+    const query = String(req.query.q ?? "").trim();
+    if (!query) {
+      res.status(400).json({ detail: "q required" });
+      return;
+    }
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 10));
+    if (!options.search) {
+      res.status(503).json({ detail: "Search unavailable (yt-dlp not configured)" });
+      return;
+    }
+    try {
+      const results = await options.search(query, limit);
+      res.json({ query, count: results.length, results });
+    } catch (error) {
+      wrapServiceError(res, error);
+    }
+  });
+
+  app.get("/api/search/youtube", async (req, res) => {
+    const query = String(req.query.q ?? "").trim();
+    if (!query) {
+      res.status(400).json({ detail: "q required" });
+      return;
+    }
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 10));
+    if (!options.search) {
+      res.status(503).json({ detail: "Search unavailable (yt-dlp not configured)" });
+      return;
+    }
+    try {
+      const results = await options.search(query, limit);
+      res.json({ query, count: results.length, results });
+    } catch (error) {
+      wrapServiceError(res, error);
+    }
+  });
+
+  // ------------------------------------------------------------ local media
+
+  app.get("/api/media/local/roots", (_req, res) => {
+    res.json({ roots: mediaResolver.listRootsPayload() });
+  });
+
+  app.get("/api/media/local/browse", (req, res) => {
+    const path = String(req.query.path ?? "");
+    if (!path) {
+      res.status(400).json({ detail: "path required" });
+      return;
+    }
+    try {
+      res.json(mediaResolver.browseDirectory(path));
+    } catch (error) {
+      wrapServiceError(res, error);
+    }
   });
 
   // --------------------------------------------------------------- history
@@ -202,7 +420,13 @@ export function createApp(options: AppOptions) {
   // -------------------------------------------------------------- playlists
 
   app.get("/api/playlists", (_req, res) => {
-    res.json(repo.listPlaylists().map(serializePlaylist));
+    const lastPlayed = repo.playlistLastPlayedAtById();
+    res.json(
+      repo.listPlaylists().map((row) => ({
+        ...serializePlaylist(row),
+        last_played_at: lastPlayed.get(row.id) ?? null,
+      })),
+    );
   });
 
   app.post("/api/playlists", (req, res) => {
@@ -216,11 +440,51 @@ export function createApp(options: AppOptions) {
     res.json(serializePlaylist(created));
   });
 
+  app.post("/api/playlists/custom", (req, res) => {
+    const title = String(req.body?.title ?? "").trim();
+    if (!title) {
+      res.status(400).json({ detail: "title required" });
+      return;
+    }
+    const created = repo.createCustomPlaylist(title);
+    publish();
+    res.json(serializePlaylist(created));
+  });
+
+  app.get("/api/playlists/:id", (req, res) => {
+    const playlist = repo.getPlaylist(req.params.id);
+    if (!playlist) {
+      res.status(404).json({ detail: "Playlist not found" });
+      return;
+    }
+    res.json(serializePlaylist(playlist));
+  });
+
   app.patch("/api/playlists/:id", (req, res) => {
-    const patch: { title?: string; pinned?: boolean; sync_enabled?: boolean } = {};
-    if (typeof req.body?.title === "string") patch.title = req.body.title;
-    if (typeof req.body?.pinned === "boolean") patch.pinned = req.body.pinned;
-    if (typeof req.body?.sync_enabled === "boolean") patch.sync_enabled = req.body.sync_enabled;
+    const body = req.body ?? {};
+    const hasPatch = ["title", "description", "pinned", "sync_enabled", "sync_remove_missing"].some((key) => body[key] !== undefined);
+    if (!hasPatch) {
+      res.status(400).json({ detail: "At least one field must be provided" });
+      return;
+    }
+    const playlist = repo.getPlaylist(req.params.id);
+    if (!playlist) {
+      res.status(404).json({ detail: "Playlist not found" });
+      return;
+    }
+    const patch: { title?: string; pinned?: boolean; syncEnabled?: boolean; syncRemoveMissing?: boolean } = {};
+    if (typeof body.title === "string") patch.title = body.title;
+    if (typeof body.pinned === "boolean") patch.pinned = body.pinned;
+    // Liked Songs (can_edit=false) may only be pinned/unpinned.
+    const restricted = ["title", "sync_enabled", "sync_remove_missing"].some((key) => body[key] !== undefined);
+    if (!playlist.canEdit && restricted) {
+      res.status(403).json({ detail: "Playlist cannot be edited" });
+      return;
+    }
+    if (playlist.canEdit) {
+      if (typeof body.sync_enabled === "boolean") patch.syncEnabled = body.sync_enabled;
+      if (typeof body.sync_remove_missing === "boolean") patch.syncRemoveMissing = body.sync_remove_missing;
+    }
     const updated = repo.updatePlaylist(req.params.id, patch);
     if (!updated) {
       res.status(404).json({ detail: "Playlist not found" });
@@ -231,9 +495,34 @@ export function createApp(options: AppOptions) {
   });
 
   app.delete("/api/playlists/:id", (req, res) => {
-    const ok = repo.deletePlaylist(req.params.id);
+    const playlist = repo.getPlaylist(req.params.id);
+    if (!playlist) {
+      res.status(404).json({ detail: "Playlist not found" });
+      return;
+    }
+    if (!playlist.canDelete) {
+      res.status(403).json({ detail: "Playlist cannot be deleted" });
+      return;
+    }
+    repo.deletePlaylist(req.params.id);
     publish();
-    res.json({ ok });
+    res.json({ ok: true });
+  });
+
+  app.post("/api/playlists/reorder", (req, res) => {
+    const playlistId = String(req.body?.playlist_id ?? "");
+    const newPosition = asInt(req.body?.new_position);
+    if (!playlistId || newPosition === null) {
+      res.status(400).json({ detail: "playlist_id and new_position required" });
+      return;
+    }
+    try {
+      playlistsSvc.reorderSidebarPlaylist(playlistId, newPosition, Boolean(req.body?.pinned));
+      publish();
+      res.json({ ok: true });
+    } catch (error) {
+      wrapServiceError(res, error);
+    }
   });
 
   app.get("/api/playlists/:id/entries", (req, res) => {
@@ -245,27 +534,164 @@ export function createApp(options: AppOptions) {
     res.json(repo.listPlaylistEntries(req.params.id).map(serializePlaylistEntry));
   });
 
-  app.post("/api/playlists/:id/entries", (req, res) => {
-    const playlist = repo.getPlaylist(req.params.id);
-    if (!playlist) {
-      res.status(404).json({ detail: "Playlist not found" });
-      return;
-    }
+  app.post("/api/playlists/:id/entries", async (req, res) => {
     const url = String(req.body?.url ?? "").trim();
     if (!url) {
       res.status(400).json({ detail: "url required" });
       return;
     }
-    const entry = repo.addPlaylistEntry(req.params.id, {
-      sourceUrl: url,
-      normalizedUrl: options.trackSource.normalizeUrl?.(url) ?? url,
-      title: req.body?.title ?? null,
-      provider: req.body?.provider ?? null,
-      providerItemId: req.body?.provider_item_id ?? null,
-      durationSeconds: req.body?.duration_seconds ?? null,
-    });
+    if (!isImportMode(req.body?.import_mode)) {
+      res.status(400).json({ detail: "Invalid import_mode" });
+      return;
+    }
+    try {
+      const result = await playlistsSvc.addItemToPlaylist(req.params.id, url, req.body.import_mode ?? null);
+      if (!result.has_duplicates) publish();
+      res.json(result);
+    } catch (error) {
+      wrapServiceError(res, error);
+    }
+  });
+
+  app.post("/api/playlists/:id/entries/local", async (req, res) => {
+    const path = String(req.body?.path ?? "").trim();
+    if (!path) {
+      res.status(400).json({ detail: "path required" });
+      return;
+    }
+    if (!isImportMode(req.body?.import_mode)) {
+      res.status(400).json({ detail: "Invalid import_mode" });
+      return;
+    }
+    try {
+      const result = await playlistsSvc.addLocalPathToPlaylist(req.params.id, path, req.body.import_mode ?? null);
+      if (!result.has_duplicates) publish();
+      res.json(result);
+    } catch (error) {
+      wrapServiceError(res, error);
+    }
+  });
+
+  app.post("/api/playlists/:id/entries/local-folder", async (req, res) => {
+    const path = String(req.body?.path ?? "").trim();
+    if (!path) {
+      res.status(400).json({ detail: "path required" });
+      return;
+    }
+    if (!isImportMode(req.body?.import_mode)) {
+      res.status(400).json({ detail: "Invalid import_mode" });
+      return;
+    }
+    try {
+      const result = await playlistsSvc.addLocalFolderToPlaylist(req.params.id, path, req.body?.recursive !== false, req.body.import_mode ?? null);
+      if (!result.has_duplicates) publish();
+      res.json(result);
+    } catch (error) {
+      wrapServiceError(res, error);
+    }
+  });
+
+  app.post("/api/playlists/:id/entries/batch", async (req, res) => {
+    const entries = Array.isArray(req.body?.entries) ? req.body.entries : null;
+    if (!entries) {
+      res.status(400).json({ detail: "entries required" });
+      return;
+    }
+    if (!isImportMode(req.body?.import_mode)) {
+      res.status(400).json({ detail: "Invalid import_mode" });
+      return;
+    }
+    try {
+      const result = await playlistsSvc.addEntriesToPlaylist(
+        req.params.id,
+        entries.map((entry: Record<string, unknown>) => ({
+          sourceUrl: String(entry.source_url ?? ""),
+          provider: entry.provider ?? null,
+          providerItemId: entry.provider_item_id ?? null,
+          normalizedUrl: String(entry.normalized_url ?? entry.source_url ?? ""),
+          title: entry.title ?? null,
+          channel: entry.channel ?? null,
+          durationSeconds: entry.duration_seconds ?? null,
+          thumbnailUrl: entry.thumbnail_url ?? null,
+        })),
+        req.body.import_mode ?? null,
+      );
+      if (!result.has_duplicates) publish();
+      res.json(result);
+    } catch (error) {
+      wrapServiceError(res, error);
+    }
+  });
+
+  app.post("/api/playlists/:id/queue", (req, res) => {
+    try {
+      const result = playlistsSvc.queuePlaylist(req.params.id);
+      publish();
+      res.json(result);
+    } catch (error) {
+      wrapServiceError(res, error);
+    }
+  });
+
+  app.post("/api/playlists/:id/play-now", (req, res) => {
+    try {
+      const result = playlistsSvc.queuePlaylist(req.params.id, true);
+      if (result.item_ids.length > 0) engine.skip();
+      publish();
+      res.json(result);
+    } catch (error) {
+      wrapServiceError(res, error);
+    }
+  });
+
+  app.post("/api/playlists/entries/:entryId/queue", (req, res) => {
+    try {
+      const result = playlistsSvc.queuePlaylistEntry(asInt(req.params.entryId, 0)!);
+      publish();
+      res.json(result);
+    } catch (error) {
+      wrapServiceError(res, error);
+    }
+  });
+
+  app.delete("/api/playlists/entries/:entryId", (req, res) => {
+    if (!repo.removePlaylistEntry(asInt(req.params.entryId, 0)!)) {
+      res.status(404).json({ detail: "Playlist entry not found" });
+      return;
+    }
     publish();
-    res.json(entry ? serializePlaylistEntry(entry) : { ok: false });
+    res.status(204).end();
+  });
+
+  app.post("/api/playlists/entries/:entryId/reorder", (req, res) => {
+    const newPosition = asInt(req.body?.new_position);
+    if (newPosition === null) {
+      res.status(400).json({ detail: "new_position required" });
+      return;
+    }
+    try {
+      playlistsSvc.reorderPlaylistEntry(asInt(req.params.entryId, 0)!, newPosition);
+      publish();
+      res.json({ ok: true });
+    } catch (error) {
+      wrapServiceError(res, error);
+    }
+  });
+
+  // --------------------------------------------------------------- import
+
+  app.post("/api/playlist/import", async (req, res) => {
+    const url = String(req.body?.url ?? "").trim();
+    if (!url) {
+      res.status(400).json({ detail: "url required" });
+      return;
+    }
+    try {
+      const result = await playlistsSvc.importPlaylist(url);
+      res.json(result);
+    } catch (error) {
+      wrapServiceError(res, error);
+    }
   });
 
   // ------------------------------------------------------------------- like

@@ -16,7 +16,7 @@ YouTube extractor changes are the most likely incident.
 3. **Update binary** (pick one):
    - Runtime (non-Docker): settings UI update, or `POST /api/binaries/install` (`{"name":"yt-dlp"}`), or replace the binary at `AIRWAVE_YT_DLP_PATH` with a release from github.com/yt-dlp/yt-dlp.
    - Docker: rebuild the image (binaries are baked in at build time), then redeploy.
-4. **Verify**: `.venv/bin/python -m pytest` still green; queue a known track end-to-end.
+4. **Verify**: `npm test --workspaces --if-present` still green; queue a known track end-to-end.
 5. **Rollback**: keep the previous binary/image tag before updating (Docker: previous GHCR tag; bare metal: copy `bin/yt-dlp` aside first).
 
 ## Scenario #2 — Mobile background playback stops (verified 2026-08)

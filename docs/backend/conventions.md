@@ -50,7 +50,5 @@ New settings: add to `Settings` in `app/core/config.py` (env prefix `AIRWAVE_`, 
 
 ## Tests
 
-- Test file per module in `tests/`, pytest style, `--timeout=300` enforced.
-- Mock subprocesses (see `test_stream_engine.py` fake ffmpeg) — tests must not need network access.
-- Run: `source .venv/bin/activate && python -m pytest` (or focused subset). CI runs the same.
-- Install deps editable: `pip install -e ".[dev]"`. Non-editable installs break static-file tests (`app/static` missing in site-packages).
+- Vitest per package (`packages/{domain,usecases,db}`, `apps/node-server`); fakes for subprocesses, injected clocks — no network in unit tests (real-ffmpeg E2E auto-skips without binaries).
+- Run: `npm test --workspaces --if-present` from the repo root (CI runs the same) plus per-package `tsc --noEmit` gates. Details: `docs/backend/testing.md`.

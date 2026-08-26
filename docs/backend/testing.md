@@ -1,56 +1,36 @@
 # Backend Testing
 
-Read this before writing or modifying backend tests. For layer rules the tests enforce, see `docs/backend/clean-architecture.md`; for the decision record, `docs/decisions/` (ADR process).
+How the Node server's test suites are organized and run. Frontend tests: `docs/frontend/testing.md`.
 
-## Layout & commands
+## Running
 
-- Tests live in `apps/server/tests/` (pytest, ~270 tests, ~5,700 lines). Run from the repo root with the repo-root venv:
-  ```bash
-  source .venv/bin/activate
-  cd apps/server && python -m pytest                 # all
-  python -m pytest tests/test_domain.py              # one file
-  python -m pytest tests/test_domain.py -k repeat    # one test / keyword
-  ```
-- The package must be installed **editable** (`pip install -e ".[dev]"`); non-editable installs break the static tests (they resolve paths relative to `app/`).
-- CI runs the full suite with JUnit reporting (`.github/workflows/ci.yml`).
+```bash
+npm install                      # workspace root, once
+npm test --workspaces --if-present   # all packages (server + web)
+# focused:
+npx vitest run --root packages/domain
+npx vitest run --root packages/usecases
+npx vitest run --root packages/db
+npx vitest run --root apps/node-server
+# typecheck (CI gate, run all four):
+for pkg in packages/domain packages/usecases packages/db apps/node-server; do (cd "$pkg" && npx tsc --noEmit); done
+```
 
-## Test map
+Real-ffmpeg E2E (in `apps/node-server/test/e2e-pipeline.test.ts`) auto-skip when `ffmpeg`/`ffprobe` are not on `PATH`; point `AIRWAVE_FFMPEG_PATH`/`AIRWAVE_FFPROBE_PATH` at binaries to enable.
 
-| File | Covers |
+## Layout
+
+| Package | Focus |
 |---|---|
-| `test_api.py`, `test_api_extended.py`, `test_system_routes.py` | HTTP surface via FastAPI TestClient |
-| `test_architecture.py` | **Static AST layer enforcement** (see below) |
-| `test_ports.py` | Protocol/port satisfaction (FfmpegPipeline→Transcoder, HlsSegmenter→StreamSink, YtDlpService→TrackSource, Repository→PlaybackStore, …) |
-| `test_domain.py` | Pure playback rules (`app/domain/`) |
-| `test_play_track.py` | Play-track orchestration (`app/usecases/`) |
-| `test_stream_engine.py`, `test_engine_control_flows.py` | StreamEngine session/retry/transition logic |
-| `test_hls_segmenter.py` | HLS segmenting |
-| `test_playlist_service.py`, `test_spotify_*` | Playlist + Spotify import services |
-| `test_repository.py` | DB facade, stores, migrations |
-| `test_state_locking.py` | Concurrency/locking around shared state |
-| `test_yt_dlp_*.py`, `test_ffmpeg_*.py`, `test_extractors.py`, `test_binaries_service.py` | Subprocess wrapper services (use fake binaries / recorded fixtures — no network) |
-| `test_config.py`, `test_local_folder.py`, `test_media_sources.py`, `test_sync_service.py` | Settings, local-media ingestion, sync |
-
-## Architecture & port enforcement (the unusual part)
-
-Two test files are **lint backstops**, not behavior tests. Breaking them means you violated the layer rules — fix the code, not the test:
-
-- `test_architecture.py` — pure pytest + AST mirrors the import-linter contracts in `apps/server/pyproject.toml` (`[tool.importlinter]`) and `docs/backend/clean-architecture.md`:
-  - `domain` imports nothing from `app.api`/`app.db`/`app.services`/`app.usecases`/`app.main`
-  - `usecases` imports nothing from `app.api`/`app.db`/`app.services`/`app.main`
-  - `domain` bans wall-clock/blocking/IO calls (`time.sleep`, `subprocess`, `socket`, `requests`, …)
-- `test_ports.py` — service classes must satisfy the Protocols the engine consumes (`isinstance(x, Transcoder)`-style checks with fakes). If you add an engine collaborator, add a Protocol and a satisfaction test.
-
-import-linter itself runs as a dev tool; the AST tests exist so the rules hold even where import-linter's transitive counting is too coarse.
+| `packages/domain/test` | Pure playback rules: outcome classification, progress math, repeat-cycle, seek/shuffle — no fakes, sub-ms |
+| `packages/usecases/test` | TrackAttemptRunner orchestration with injected clock + fake transcoder/hooks |
+| `packages/db/test` | Repository invariants on real SQLite files (tmp dirs): sequential positions, single-playing self-heal, transactional history writes, Liked Songs seed |
+| `apps/node-server/test` | HLS segmenter (fake packager, real FS), engine control flows (fake pipeline), API integration on a live Express app (supertest), real-ffmpeg E2E |
 
 ## Conventions
 
-- Style: ruff config in `apps/server/pyproject.toml`; double quotes, `from __future__ import annotations` where used already.
-- Subprocess services are tested with fake executables / argv assertions — never shell out to the real yt-dlp/ffmpeg, never hit the network.
-- FastAPI tests build the app via the factory and use `request.app.state` services like production code does.
-- New behavior in `domain`/`usecases`/engine logic → test in the matching file; new service → new `test_<service>.py` following the fake-binary pattern.
-
-## Known gaps
-
-- No coverage gate; suite is behavior + architecture focused.
-- E2E/browser tests do not exist (`tests_e2e/` was removed upstream; do not recreate without an ADR).
+- **No network in unit tests.** yt-dlp/ffmpeg are faked (`RecordingHooks`, `ScriptedFfmpeg`, fake packager writing real playlist files). Only the E2E file touches real binaries.
+- **Injected time everywhere.** Clocks (`() => number`) and sleepers are constructor options on the runner/engine — retry and backoff paths test in microseconds, no real waits. Polling loops in engine tests use generous deadlines (CI runners are slow).
+- **Live app for API tests.** `test/api.test.ts` boots the real `createApp` on an ephemeral port with a stub track source and asserts wire shapes (field-for-field against the v1.x contract).
+- **Fakes must mirror the real interface exactly** — a lagging fake silently gates coverage (the Python-era `FakeYtDlp.normalize_url` gap is the canonical example; see the WS-snapshot/contracts history).
+- Style: strict TypeScript, double quotes, `.ts` import specifiers (`allowImportingTsExtensions`; runtime is `node --experimental-strip-types` — no parameter properties, `import type` for type-only re-exports).

@@ -1,1 +1,1 @@
-import{_ as e}from"./GeneralSettingsPanel.js";import{p as o,o as r}from"../app.js";const n={__name:"index",setup(_){return(a,t)=>(r(),o(e))}};export{n as default};
+import{_ as e}from"./GeneralSettingsPanel.vue_vue_type_script_setup_true_lang.js";import{d as o,q as a,o as n}from"../app.js";const m=o({__name:"index",setup(r){return(t,_)=>(n(),a(e))}});export{m as default};

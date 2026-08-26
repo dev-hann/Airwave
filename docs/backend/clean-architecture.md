@@ -145,13 +145,16 @@ change requiring explicit approval:
 
 Three gates, all in CI:
 
+These gates governed the Python implementation of this architecture
+(`app/domain`, `app/usecases` — since removed in the Node migration, v2.0.0).
+The TS port (`packages/domain`, `packages/usecases`) follows the same rules —
+pure modules, injected time — enforced by review and the type system rather
+than a dedicated linter. Historical text follows for context:
+
 1. **import-linter** (`pyproject.toml [tool.importlinter]`): layer contracts
-   — `domain` imports nothing from app; `usecases` imports only `domain`;
-   overall `domain ← usecases ← adapters ← api ← main` direction.
-2. **`tests/test_architecture.py`**: pure-pytest backstop (works even without
-   import-linter installed) — walks `app/domain/` and `app/usecases/` ASTs
-   asserting no forbidden imports, plus scans domain source for `time.sleep`,
-   `time.time`, `time.monotonic`, `subprocess`, `socket`.
+   — `domain` imports nothing from app; `usecases` imports only `domain`.
+2. **`tests/test_architecture.py`**: pure-pytest AST backstop — no forbidden
+   imports, no `time.sleep`/wall-clock/subprocess in domain.
 3. **ruff**: lint for new layers from day one (strict per-file config);
    legacy files join the strict set only when touched by the migration, so
    review diffs stay about structure, not style churn.

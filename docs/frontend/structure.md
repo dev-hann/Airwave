@@ -5,7 +5,7 @@ Read this before touching frontend structure, state, or the build. For how state
 ## Layout
 
 - Source: `apps/web/src/` (TypeScript, strict). npm-workspace member `@airwave/web`; vite config sits at `apps/web/vite.config.ts`. The repo is an npm-workspaces monorepo (`apps/*`, `packages/*`).
-- Build output goes to `apps/server/app/static/dist/` (entry files forced to `app.js` / `app.css`). FastAPI serves that directory — **the served app is the build output, not `apps/web/src`**.
+- Build output goes to `apps/node-server/static-dist/` (entry files forced to `app.js` / `app.css`). The Node server serves that directory — **the served app is the build output, not `apps/web/src`**.
 - After changing any Vue file, store, composable, or router behavior: run `npm run build` (workspace root). CI also builds + typechecks + runs unit tests.
 - Shared code: `@airwave/shared` (`packages/shared`) — enums + OpenAPI-generated `schema.d.ts` (regenerate with `npm run contracts:gen`; CI fails on drift).
 

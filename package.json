@@ -22,7 +22,7 @@
     "@types/ws": "^8.18.1",
     "drizzle-kit": "^0.31.10",
     "supertest": "^7.2.2",
-    "typescript": "^7.0.2",
+    "typescript": "5.8.3",
     "vitest": "^4.1.11"
   },
   "dependencies": {

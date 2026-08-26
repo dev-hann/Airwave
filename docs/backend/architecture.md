@@ -56,7 +56,7 @@ Queue (SQLite) ──▶ StreamEngine (worker thread)
 
 ## API surface
 
-- `apps/server/app/api/routes.py` is a 45-line aggregator mounting **19 domain sub-routers** under `/api`. Routers import the repository facade only (store internals forbidden — enforced by `tests/test_architecture.py`).
+- `apps/node-server/src/app.ts` is the Express composition: domain-grouped route handlers (health/state/playback/queue/history/playlists/settings + HLS endpoints + ws). Handlers stay thin — validate → stores/engine → serialize.
 - Route domains live in `app/api/{system,binaries,settings,queue,media,playback,history,playlist,playlists,ws,search,spotify}/`.
 - Shared helpers: `app/api/common/` — `models.py` (Pydantic schemas), `serializers.py` (`_serialize_*`, UI snapshot), `dependencies.py` (`_services(request)` accessor). (`responses.py` was removed with the raw-MP3 endpoint.)
 - 73 endpoints under `/api` (72 HTTP + 1 WS) plus root routes in `app/api/root.py` (`/`, `/stream/live.m3u8`, `/stream/{segment}`).

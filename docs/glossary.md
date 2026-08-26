@@ -9,7 +9,7 @@ Canonical vocabulary for code, docs, and discussions. Use these terms exactly; w
 - **Segment** — one chunk of AAC/MP3 media in the HLS stream (see `HlsSegmenter`).
 - **Live edge** — the newest segment; listeners play ~`liveSyncDurationCount` segments behind it.
 - **hls_stream_listeners** — server metric: clients that polled the playlist in the last 30s.
-- **Muted-prestart** — client playback model: the `<audio>` element starts *muted* to satisfy autoplay policy, then unmutes on first user gesture (see `composables/useLocalPlayback`).
+- **Muted-prestart** — client playback model: the `<audio>` element starts *muted* to satisfy autoplay policy, then unmutes on first user gesture (see `stores/` + `useLocalPlayback.ts`).
 - **Rejoin** — client-side recovery: reset `src`, re-attach the engine, and resume at the live edge after fatal media errors or foreground/background transitions.
 - **Engine session** — one playback run in `StreamEngine`: resolving a queue item, starting the ffmpeg pipeline, segmenting, advancing to the next track.
 

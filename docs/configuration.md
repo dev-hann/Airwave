@@ -1,19 +1,34 @@
 # Configuration
 
-All runtime configuration is env-driven via pydantic-settings with the `AIRWAVE_` prefix. **The source of truth is [`apps/server/app/core/config.py`](../apps/server/app/core/config.py)** — this page is a map, not a copy; defaults and constraints live in code only (a duplicated table would drift). `.env` files are honored (repo root, gitignored).
+All runtime configuration is env-driven with the `AIRWAVE_` prefix. **The source of truth is [`apps/node-server/src/main.ts`](../apps/node-server/src/main.ts)** and the modules it wires (`stream-engine.ts`, `hls-segmenter.ts`, `ffmpeg-pipeline.ts`) — this page is a map, not a copy; defaults and constraints live in code only (a duplicated table would drift).
 
 ## Groups
 
-- **Server**: `AIRWAVE_HOST`, `AIRWAVE_PORT`, `AIRWAVE_DB_URL` (SQLite default `./data/airwave.db`), `AIRWAVE_LOG_LEVEL`, `AIRWAVE_APP_VERSION` (injected by CI; `dev` locally).
-- **Stream / HLS**: `AIRWAVE_MP3_BITRATE` (intermediate pipe; keep well above `hls_bitrate`), `AIRWAVE_HLS_BITRATE` (listener-facing AAC), `AIRWAVE_HLS_SEGMENT_SECONDS` (default 4s — latency vs. reload tradeoff), `AIRWAVE_HLS_WINDOW_SIZE` (live-window segment count; drives how much history joining listeners fetch and how much buffer mobile clients can ride out), `AIRWAVE_CHUNK_SIZE` (ffmpeg read size; small chunks underrun), `AIRWAVE_STREAM_PATH`.
-- **Engine cadence**: `AIRWAVE_QUEUE_POLL_SECONDS`, `AIRWAVE_STREAM_STATS_LOG_SECONDS` (the `Engine stats ... hls_stream_listeners=N` log), `AIRWAVE_HISTORY_LIMIT`.
-- **Binaries**: `AIRWAVE_YT_DLP_PATH`, `AIRWAVE_FFMPEG_PATH`, `AIRWAVE_FFPROBE_PATH`, `AIRWAVE_DENO_PATH` (defaults under `./bin/`; Docker bakes them at build time — see `docs/maintenance.md`).
-- **Playlists**: `AIRWAVE_PLAYLIST_SYNC_INTERVAL_SECONDS`, `AIRWAVE_PLAYLIST_SYNC_MAX_CONCURRENT`.
-- **Local media**: `AIRWAVE_LOCAL_MEDIA_ROOTS` — **deliberately a string** (comma-separated paths or a JSON-array string), parsed via `Settings.local_media_roots_list`. Do not convert to `list[str]`: pydantic-settings JSON-decodes list fields from env before validators run and rejects plain `a,b` values (comment in `config.py`).
-- **Updates**: `AIRWAVE_WATCHTOWER_URL`, `AIRWAVE_WATCHTOWER_TOKEN` — both empty by default; the upgrade endpoint returns 503 and the UI hides the update button.
+- **Server**: `AIRWAVE_HOST` (default `0.0.0.0`), `AIRWAVE_PORT` (default `8000`), `AIRWAVE_DB_URL` (SQLite; accepts python-style `sqlite:///…` URLs or plain paths — normalized in `main.ts`), `AIRWAVE_STATIC_DIR` (frontend bundle directory; default `apps/node-server/static-dist`), `AIRWAVE_HLS_DIR` (segment scratch directory; default `/tmp/airwave-hls-*`).
+- **Media binaries**: `AIRWAVE_YT_DLP_PATH`, `AIRWAVE_FFMPEG_PATH`, `AIRWAVE_FFPROBE_PATH`, `AIRWAVE_DENO_PATH` (Docker bakes them at `/app/bin`; bare-metal runs typically point at `./bin/` — see `docs/maintenance.md`).
+- **App identity**: `AIRWAVE_APP_VERSION` — injected by CI (`dev-<sha>` locally, tag name in releases).
+
+## In-code tunables (not env yet — constants at construction sites)
+
+These were `AIRWAVE_*` settings in the Python era and are currently hardcoded defaults passed to the engine/segmenter constructors in `app.ts`:
+
+| Constant | Default | Where |
+|---|---|---|
+| Intermediate MP3 bitrate | `320k` | `FfmpegPipeline` construction (`app.ts`) |
+| HLS AAC bitrate | `192k` | `spawnHlsPackager` options |
+| Segment seconds | `4` | `HlsSegmenter` options |
+| Window size | `12` segments | `HlsSegmenter` options |
+| Queue poll seconds | `1` | `StreamEngine` options |
+| Playback retry count | `2` | `StreamEngine` options |
+| Chunk size | `4096` B | `StreamEngine` options |
+
+Promoting any of these back to env = read it in `main.ts`, pass through `createApp` options, update this table in the same commit.
 
 ## Rules
 
-- New behavior reads config through `Settings` (`get_settings()` / injected) — never `os.environ` directly (hard rule 6).
-- Adding a setting = adding it to `config.py` with a comment explaining the tradeoff; update this page's group list in the same commit.
-- Precedence: real env vars beat `.env`.
+- New behavior reads config from `process.env` **only in `main.ts`** (the composition root); services receive values via constructor options — no ad-hoc `process.env` sprinkled through modules.
+- Adding a setting: read it in `main.ts` with a comment explaining the tradeoff; update this page's group list in the same commit.
+
+## Python-era settings not carried over
+
+`AIRWAVE_MP3_BITRATE`, `AIRWAVE_HLS_*`, `AIRWAVE_STREAM_QUEUE_SIZE`, `AIRWAVE_HUB_STALL_EVICTION_SECONDS`, `AIRWAVE_PLAYLIST_SYNC_*`, `AIRWAVE_LOCAL_MEDIA_ROOTS`, `AIRWAVE_HISTORY_LIMIT`, `AIRWAVE_WATCHTOWER_*` — the features either moved into the in-code tunables above, or (playlist sync, local media roots, watchtower-triggered upgrades) are not yet reimplemented on Node. Reintroduce on demand.

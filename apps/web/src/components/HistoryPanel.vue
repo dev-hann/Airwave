@@ -22,9 +22,16 @@
   </section>
 </template>
 
-<script setup>
-import { useLibraryState } from "../composables/useLibraryState";
+<script setup lang="ts">
+import { storeToRefs } from "pinia";
+
+import { useHistoryStore } from "../stores/history";
+import { usePlaylistsStore } from "../stores/playlists";
 import Song from "./Song.vue";
 
-const { history, playlists, clearHistory } = useLibraryState();
+const historyStore = useHistoryStore();
+const playlistsStore = usePlaylistsStore();
+const { history } = storeToRefs(historyStore);
+const { playlists } = storeToRefs(playlistsStore);
+const { clearHistory } = historyStore;
 </script>

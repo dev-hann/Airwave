@@ -1,4 +1,4 @@
-export function formatTotalDuration(totalSeconds) {
+export function formatTotalDuration(totalSeconds: number | null | undefined): string {
   const s = Math.max(0, Math.floor(Number(totalSeconds) || 0));
   const hrs = Math.floor(s / 3600);
   const mins = Math.floor((s % 3600) / 60);
@@ -7,7 +7,7 @@ export function formatTotalDuration(totalSeconds) {
   return "< 1 min";
 }
 
-export function formatDuration(value) {
+export function formatDuration(value: number | null | undefined): string {
   const totalSeconds = Math.max(0, Math.floor(Number(value) || 0));
   const hours = Math.floor(totalSeconds / 3600);
   const mins = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, "0");

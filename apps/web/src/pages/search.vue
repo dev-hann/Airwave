@@ -16,7 +16,7 @@
           type="search"
           placeholder="Search YouTube"
           class="h-10 w-full min-w-0 rounded-md border px-3 text-sm sm:w-[320px] surface-input"
-          @input="onSearchTextChange($event.target.value)"
+          @input="onSearchInputEvent"
           @keydown.enter.prevent="onSearchSubmit(router, route, searchText)"
         />
         <UButton
@@ -46,7 +46,7 @@
         size="sm"
         :variant="selectedProvider === filter.id ? 'solid' : 'outline'"
         :color="selectedProvider === filter.id ? 'primary' : 'neutral'"
-        @click="selectedProvider = filter.id"
+        @click="() => { selectedProvider = filter.id }"
       >
         {{ filter.label }} ({{ providerCounts[filter.id] || 0 }})
       </UButton>
@@ -68,27 +68,51 @@
   </section>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { storeToRefs } from "pinia";
 
 import Song from "../components/Song.vue";
-import { fetchJson } from "../composables/useApi";
-import { useLibraryState } from "../composables/useLibraryState";
-import { useUiState } from "../composables/useUiState";
+import { getJson } from "../lib/api/http";
+import { usePlaylistsStore } from "../stores/playlists";
+import { useUiStore } from "../stores/ui";
+import type { Playlist } from "../types/api";
 
-const { playlists } = useLibraryState();
-const { searchText, onSearchTextChange, onSearchSubmit } = useUiState();
+interface SearchResultItem {
+  source_url: string;
+  title?: string | null;
+  channel?: string | null;
+  provider?: string | null;
+  provider_item_id?: string | null;
+  thumbnail_url?: string | null;
+  duration_seconds?: number | null;
+}
+
+interface SearchResponse {
+  results?: SearchResultItem[];
+}
+
+const playlistsStore = usePlaylistsStore();
+const { playlists } = storeToRefs(playlistsStore);
+const uiStore = useUiStore();
+const { searchText } = storeToRefs(uiStore);
+const { onSearchTextChange, onSearchSubmit } = uiStore;
+void searchText;
 const router = useRouter();
 
 const route = useRoute();
 const query = ref("");
-const results = ref([]);
+const results = ref<SearchResultItem[]>([]);
 const loading = ref(false);
 const errorMessage = ref("");
 const selectedProvider = ref("all");
 
-function providerLabel(providerId) {
+function onSearchInputEvent(event: Event): void {
+  onSearchTextChange((event.target as HTMLInputElement).value);
+}
+
+function providerLabel(providerId: string): string {
   if (!providerId || providerId === "all") return "All";
   return providerId
     .split(/[\s_-]+/g)
@@ -97,8 +121,8 @@ function providerLabel(providerId) {
     .join(" ");
 }
 
-const providerCounts = computed(() => {
-  const counts = { all: results.value.length };
+const providerCounts = computed<Record<string, number>>(() => {
+  const counts: Record<string, number> = { all: results.value.length };
   for (const item of results.value) {
     const provider = String(item?.provider || "").toLowerCase();
     if (!provider) continue;
@@ -121,12 +145,12 @@ const filteredResults = computed(() => {
 
 let requestId = 0;
 
-function normalizeQuery(value) {
-  if (Array.isArray(value)) return (value[0] || "").trim();
+function normalizeQuery(value: unknown): string {
+  if (Array.isArray(value)) return (value[0] as string | undefined || "").trim();
   return typeof value === "string" ? value.trim() : "";
 }
 
-async function searchAll(rawQuery) {
+async function searchAll(rawQuery: unknown): Promise<void> {
   const normalized = normalizeQuery(rawQuery);
   query.value = normalized;
   selectedProvider.value = "all";
@@ -143,7 +167,7 @@ async function searchAll(rawQuery) {
   errorMessage.value = "";
 
   try {
-    const payload = await fetchJson(`/api/search?q=${encodeURIComponent(normalized)}&limit=20`);
+    const payload = await getJson<SearchResponse>("/api/search", { q: normalized, limit: 20 });
     if (activeRequestId !== requestId) return;
     results.value = Array.isArray(payload?.results) ? payload.results : [];
   } catch (error) {

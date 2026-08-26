@@ -1,8 +1,9 @@
 import { onUnmounted, ref, watch } from "vue";
+import type { Ref } from "vue";
 
 import Hls from "hls.js";
 
-import { usePlaybackState } from "./usePlaybackState";
+import { usePlaybackStore } from "../stores/playback";
 
 const LOCAL_VOLUME_STORAGE_KEY = "airwave:settings:local-volume";
 const DEFAULT_LOCAL_VOLUME = 0.8;
@@ -27,16 +28,16 @@ const HLS_LIVE_SYNC_SEGMENT_COUNT = 3;
 const HLS_LIVE_MAX_LATENCY_SEGMENT_COUNT = 12;
 const HLS_MAX_LIVE_SYNC_PLAYBACK_RATE = 1.5;
 
-function canPlayNativeHls(audio) {
-  return Boolean(audio) && audio.canPlayType("application/vnd.apple.mpegurl") !== "";
+function canPlayNativeHls(audio: HTMLAudioElement | null): boolean {
+  return audio !== null && audio.canPlayType("application/vnd.apple.mpegurl") !== "";
 }
 
-function clampVolume(value) {
+function clampVolume(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_LOCAL_VOLUME;
   return Math.max(0, Math.min(1, value));
 }
 
-function readStoredLocalVolume() {
+function readStoredLocalVolume(): number | null {
   if (typeof window === "undefined") return null;
   try {
     const stored = window.localStorage.getItem(LOCAL_VOLUME_STORAGE_KEY);
@@ -49,7 +50,7 @@ function readStoredLocalVolume() {
   }
 }
 
-function writeStoredLocalVolume(volume) {
+function writeStoredLocalVolume(volume: number): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(LOCAL_VOLUME_STORAGE_KEY, String(clampVolume(volume)));
@@ -74,10 +75,10 @@ function writeStoredLocalVolume(volume) {
  *   handles fatal errors (with the official recovery cooldown), autoplay
  *   policy, and foreground reconciliation — never rejoin on transient
  *   stalls, which would just destroy the buffer hls.js is defending.
- * @param {import('vue').Ref<HTMLAudioElement | null>} audioRef
+ * @param audioRef ref to the shared `<audio>` element
  */
-export function useLocalPlayback(audioRef) {
-  const { playbackState } = usePlaybackState();
+export function useLocalPlayback(audioRef: Ref<HTMLAudioElement | null>) {
+  const playbackStore = usePlaybackStore();
   /** Mirrors the audio element's paused/ended state so Vue updates when OS / Media Session controls the element. */
   const localAudioPaused = ref(true);
   const storedVolume = readStoredLocalVolume();
@@ -89,12 +90,12 @@ export function useLocalPlayback(audioRef) {
   // --- recovery state ---
   let sourceLoading = false;
   let rejoinAttempts = 0;
-  let rejoinTimer = null;
-  let detachGestureFallback = () => {};
-  let hls = null; // hls.js instance; null on native-HLS engines (iOS Safari)
+  let rejoinTimer: ReturnType<typeof setTimeout> | null = null;
+  let detachGestureFallback: () => void = () => {};
+  let hls: Hls | null = null; // hls.js instance; null on native-HLS engines (iOS Safari)
   let attemptedMediaErrorRecoveryAt = 0;
 
-  function destroyHls() {
+  function destroyHls(): void {
     if (hls != null) {
       try {
         hls.destroy();
@@ -105,14 +106,14 @@ export function useLocalPlayback(audioRef) {
     }
   }
 
-  function clearRejoinTimer() {
+  function clearRejoinTimer(): void {
     if (rejoinTimer != null) {
       clearTimeout(rejoinTimer);
       rejoinTimer = null;
     }
   }
 
-  function scheduleRejoin(delayMs) {
+  function scheduleRejoin(delayMs: number): void {
     clearRejoinTimer();
     rejoinTimer = setTimeout(() => {
       rejoinTimer = null;
@@ -120,13 +121,13 @@ export function useLocalPlayback(audioRef) {
     }, delayMs);
   }
 
-  function scheduleRejoinWithBackoff() {
+  function scheduleRejoinWithBackoff(): void {
     const delay = Math.min(REJOIN_BACKOFF_BASE_MS * 2 ** rejoinAttempts, REJOIN_BACKOFF_MAX_MS);
     rejoinAttempts += 1;
     scheduleRejoin(delay);
   }
 
-  function shouldRecover() {
+  function shouldRecover(): boolean {
     return Boolean(audioRef.value);
   }
 
@@ -136,7 +137,7 @@ export function useLocalPlayback(audioRef) {
    * anything else exhausted → backoff rejoin (never an immediate restart,
    * which the docs warn causes loop loading).
    */
-  function handleHlsFatalError(data) {
+  function handleHlsFatalError(data: { type?: string }): void {
     if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
       const now = Date.now();
       if (
@@ -164,9 +165,9 @@ export function useLocalPlayback(audioRef) {
    * the current mute state so an unmuted listener keeps hearing audio across
    * rejoins.
    */
-  async function rejoinLiveStream(reason = "rejoin") {
+  async function rejoinLiveStream(reason = "rejoin"): Promise<void> {
     const audio = audioRef.value;
-    const streamUrl = playbackState.value?.stream_url;
+    const streamUrl = playbackStore.playbackState?.stream_url;
     if (!audio || !streamUrl || !shouldRecover()) return;
 
     console.debug("[airwave] rejoin live stream", {
@@ -209,7 +210,7 @@ export function useLocalPlayback(audioRef) {
     try {
       await audio.play();
     } catch (error) {
-      if (error?.name === "NotAllowedError") {
+      if ((error as { name?: string })?.name === "NotAllowedError") {
         // Audible rejoin without a gesture (background recovery while unmuted).
         // Retry with backoff — browsers grant play() again after any interaction.
         sourceLoading = false;
@@ -217,7 +218,7 @@ export function useLocalPlayback(audioRef) {
         syncLocalAudioPausedFromElement();
         return;
       }
-      if (error?.name !== "AbortError") {
+      if ((error as { name?: string })?.name !== "AbortError") {
         // Genuine failure (network etc.) — retry with backoff.
         sourceLoading = false;
         scheduleRejoinWithBackoff();
@@ -233,7 +234,7 @@ export function useLocalPlayback(audioRef) {
   /** Foreground-visible only: resume playback if the element got paused
    * (OS/backgrounding). Never triggered from inside a backgrounded tab, so it
    * cannot churn while the browser throttles us. */
-  function maybeResumeOnForeground() {
+  function maybeResumeOnForeground(): void {
     if (!shouldRecover()) return;
     if (sourceLoading) return;
     if (rejoinTimer != null) return;
@@ -243,7 +244,7 @@ export function useLocalPlayback(audioRef) {
     void rejoinLiveStream("foreground");
   }
 
-  function syncLocalAudioPausedFromElement() {
+  function syncLocalAudioPausedFromElement(): void {
     const audio = audioRef.value;
     if (!audio) {
       localAudioPaused.value = true;
@@ -252,13 +253,13 @@ export function useLocalPlayback(audioRef) {
     localAudioPaused.value = audio.paused || audio.ended;
   }
 
-  function applyAudioVolume() {
+  function applyAudioVolume(): void {
     if (!audioRef.value) return;
     audioRef.value.volume = clampVolume(localVolume.value);
     audioRef.value.muted = isMuted.value || localVolume.value <= 0;
   }
 
-  function setLocalVolume(volume) {
+  function setLocalVolume(volume: number): void {
     const nextVolume = clampVolume(volume);
     localVolume.value = nextVolume;
     if (nextVolume > 0) {
@@ -271,7 +272,7 @@ export function useLocalPlayback(audioRef) {
     writeStoredLocalVolume(nextVolume);
   }
 
-  function toggleMuted() {
+  function toggleMuted(): void {
     const audio = audioRef.value;
     if (isMuted.value || localVolume.value <= 0) {
       const restoredVolume = previousVolumeBeforeMute.value > 0 ? previousVolumeBeforeMute.value : DEFAULT_LOCAL_VOLUME;
@@ -294,37 +295,37 @@ export function useLocalPlayback(audioRef) {
     writeStoredLocalVolume(0);
   }
 
-  function onAudioPause() {
+  function onAudioPause(): void {
     // The element stopped (background tab, OS interruption, server pause).
     // State sync only: hls.js keeps its buffer and resumes when play() is
     // granted again; a rejoin here would destroy the buffer for nothing.
     syncLocalAudioPausedFromElement();
   }
 
-  function onAudioError() {
+  function onAudioError(): void {
     // Only the native-HLS engine (no hls.js instance) surfaces playback
     // errors through the element; on MSE engines hls.js owns error handling.
     if (hls != null) return;
     scheduleRejoinWithBackoff();
   }
 
-  function onAudioPlaying() {
+  function onAudioPlaying(): void {
     rejoinAttempts = 0;
     clearRejoinTimer();
     detachGestureFallback();
     syncLocalAudioPausedFromElement();
   }
 
-  function onAudioLoadStart() {
+  function onAudioLoadStart(): void {
     sourceLoading = true;
   }
 
-  function onAudioCanPlay() {
+  function onAudioCanPlay(): void {
     sourceLoading = false;
   }
 
   /** Reconcile after background freeze: trust the element state, recover if needed. */
-  function onVisibleReconcile() {
+  function onVisibleReconcile(): void {
     if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
     setTimeout(() => {
       if (!shouldRecover()) return;
@@ -338,7 +339,7 @@ export function useLocalPlayback(audioRef) {
    * Belt-and-braces for engines that refuse even muted play(): retry on the
    * first pointer/key gesture, then detach once playback is running.
    */
-  function installGestureFallback() {
+  function installGestureFallback(): void {
     if (typeof window === "undefined") return;
     const events = ["pointerdown", "keydown", "touchstart"];
     const onFirstGesture = () => {
@@ -354,15 +355,15 @@ export function useLocalPlayback(audioRef) {
   }
 
   watch(
-    () => playbackState.value.stream_url,
+    () => playbackStore.playbackState.stream_url,
     async (newUrl) => {
       if (!newUrl) return;
       if (!audioRef.value) return;
       await rejoinLiveStream("prestart");
-    }
+    },
   );
 
-  let detachAudioStateListeners = () => {};
+  let detachAudioStateListeners: () => void = () => {};
 
   watch(
     audioRef,
@@ -393,12 +394,12 @@ export function useLocalPlayback(audioRef) {
         audio.removeEventListener("canplay", onAudioCanPlay);
       };
       // Element mounted before/after the stream URL arrived: cover both orders.
-      if (playbackState.value?.stream_url) {
+      if (playbackStore.playbackState?.stream_url) {
         void rejoinLiveStream("prestart");
       }
       installGestureFallback();
     },
-    { immediate: true }
+    { immediate: true },
   );
 
   if (typeof window !== "undefined") {

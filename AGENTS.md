@@ -10,7 +10,7 @@ Core working guide for code agents in this repo. This file is the **index** — 
 
 - Backend: Node.js 22 (TypeScript, `--experimental-strip-types`), Express 5, `ws`, zod
 - Data: SQLite via drizzle-orm + better-sqlite3 (clean-start schema; manual DDL in `Repository.init()`)
-- Frontend: Vue 3 (`<script setup>`), vite-plugin-pages, `@nuxt/ui`, Vite
+- Frontend: Vue 3 (`<script setup lang="ts">`, strict), Pinia setup stores, file-based routing (vite-plugin-pages), `@nuxt/ui` v4, Tailwind 4, Vitest + vue-tsc
 - Runtime tools: `yt-dlp`, `ffmpeg`/`ffprobe`, `deno` (downloaded in Docker build)
 - Monorepo: npm workspaces — `apps/node-server`, `apps/web`, `packages/{domain,usecases,db,shared}`
 
@@ -32,7 +32,7 @@ Core working guide for code agents in this repo. This file is the **index** — 
 4. Wire payloads are defined by `packages/shared/src/contracts.ts` (zod) — server and web import the SAME module; breaking changes ship in one commit with web consumers.
 5. Env-driven behavior via `AIRWAVE_*` env vars (see main.ts), not hardcoded values.
 6. New DB columns: extend the Drizzle schema in `packages/db/src/schema.ts` + DDL in `Repository.init()`. No ORM-generated migration tooling beyond that.
-7. Vue changes require `npm run build` before finishing (CI builds the frontend).
+7. Vue changes require `npm run build` before finishing; frontend unit tests (`npm run test -w apps/web`) and typecheck (`npm run typecheck -w apps/web`) must pass (CI runs all three).
 8. Client disconnects in streaming code are normal — handle gracefully, don't log-spam.
 9. Domain layer stays pure: no I/O, wall clock, or framework imports in `packages/domain`.
 10. Match existing style in touched files; no unrelated refactors.
@@ -42,14 +42,14 @@ Core working guide for code agents in this repo. This file is the **index** — 
 - **No authentication** — trust model is private LAN.
 - Single process, in-process engine: no horizontal scaling; restart breaks the live stream.
 - Direct-URL ingestion has an SSRF surface (no internal-IP blocklist yet).
-- Frontend has zero tests and zero lint config.
+- Frontend has unit tests (stores/lib) but no component/DOM tests and no lint config.
 - `--experimental-strip-types`: no TS parameter properties; type-only re-exports need `import type`.
 
 ## Setup & validation
 
 ```bash
 npm install                          # workspace root
-npm test --workspaces --if-present   # vitest across packages (123 tests)
+npm test --workspaces --if-present   # vitest: server packages + web stores/api
 npm run build                        # frontend build check
 # per-package typecheck:
 for pkg in packages/domain packages/usecases packages/db apps/node-server; do (cd "$pkg" && npx tsc --noEmit); done

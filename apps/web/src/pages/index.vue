@@ -89,9 +89,9 @@
             :playlist="playlist"
             :active-playlist-id="activePlaylistId"
             :is-remote-playlist="isRemotePlaylist"
-            :thumbnail-src="playlist.thumbnail_url"
+            :thumbnail-src="playlist.thumbnail_url ?? undefined"
             :label="playlistLabel(playlist)"
-            @click="openPlaylist(playlist)"
+            @click="() => { openPlaylist(playlist) }"
             @clear-active-playlist="clearActivePlaylist"
           />
         </ul>
@@ -152,34 +152,46 @@
     </div>
   </section>
 </template>
-<script setup>
+<script setup lang="ts">
 import { computed } from "vue";
 import { useRouter } from "vue-router";
+import { storeToRefs } from "pinia";
 
 import PlaylistItem from "../components/PlaylistItem.vue";
 import Song from "../components/Song.vue";
 import { useBreakpoint } from "../composables/useBreakpoint";
-import { useLibraryState } from "../composables/useLibraryState";
-import { usePlaybackState } from "../composables/usePlaybackState";
+import { useHistoryStore } from "../stores/history";
+import { usePlaybackStore } from "../stores/playback";
+import { usePlaylistsStore } from "../stores/playlists";
+import { useQueueStore } from "../stores/queue";
 import {
   HISTORY_TAB,
   MOBILE_VIEW_PLAYLISTS,
   MOBILE_VIEW_QUEUE,
   SIDEBAR_QUEUE_VIEW,
-  useUiState,
-} from "../composables/useUiState";
+  useUiStore,
+} from "../stores/ui";
+import type { Playlist } from "../types/api";
 
 const router = useRouter();
 const { isMobile } = useBreakpoint();
-const { queue, history, playlists, importPlaylistUrl } = useLibraryState();
-const { playbackState } = usePlaybackState();
+const queueStore = useQueueStore();
+const historyStore = useHistoryStore();
+const playlistsStore = usePlaylistsStore();
+const playbackStore = usePlaybackStore();
+const { queue } = storeToRefs(queueStore);
+const { history } = storeToRefs(historyStore);
+const { playlists } = storeToRefs(playlistsStore);
+const { playbackState } = storeToRefs(playbackStore);
+const { importPlaylistUrl } = playlistsStore;
+const uiStore = useUiStore();
 const {
   activePlaylistId,
   activeQueueTab,
-  selectPlaylist,
   sidebarView,
   mobileView,
-} = useUiState();
+} = storeToRefs(uiStore);
+const selectPlaylist = uiStore.selectPlaylist;
 
 const queueCount = computed(() => (Array.isArray(queue.value) ? queue.value.length : 0));
 const historyCount = computed(() => (Array.isArray(history.value) ? history.value.length : 0));
@@ -214,11 +226,11 @@ const historyPreview = computed(() => {
   return h.slice(0, 5);
 });
 
-function goToSearch() {
+function goToSearch(): void {
   router.push({ path: "/search" });
 }
 
-function goToPlaylists() {
+function goToPlaylists(): void {
   if (isMobile.value) {
     mobileView.value = MOBILE_VIEW_PLAYLISTS;
   } else {
@@ -226,7 +238,7 @@ function goToPlaylists() {
   }
 }
 
-function goToQueue() {
+function goToQueue(): void {
   if (isMobile.value) {
     mobileView.value = MOBILE_VIEW_QUEUE;
   } else {
@@ -234,7 +246,7 @@ function goToQueue() {
   }
 }
 
-function goToHistory() {
+function goToHistory(): void {
   if (isMobile.value) {
     mobileView.value = MOBILE_VIEW_QUEUE;
     activeQueueTab.value = HISTORY_TAB;
@@ -244,16 +256,16 @@ function goToHistory() {
   }
 }
 
-function isRemotePlaylist(playlist) {
+function isRemotePlaylist(playlist: Playlist | null | undefined): boolean {
   return playlist?.kind === "remote_youtube";
 }
 
-function playlistLabel(playlist) {
+function playlistLabel(playlist: Playlist | null | undefined): string {
   if (playlist?.kind === "remote_youtube") return "youtube";
   return playlist?.kind || "playlist";
 }
 
-function openPlaylist(playlist) {
+function openPlaylist(playlist: Playlist): void {
   if (isRemotePlaylist(playlist)) {
     importPlaylistUrl(playlist.source_url);
     return;
@@ -261,7 +273,7 @@ function openPlaylist(playlist) {
   selectPlaylist(router, playlist?.id);
 }
 
-function clearActivePlaylist() {
+function clearActivePlaylist(): void {
   selectPlaylist(router, null);
 }
 </script>

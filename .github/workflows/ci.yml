@@ -56,6 +56,12 @@ jobs:
           npm ci
           npm run build
 
+      - name: Frontend typecheck (vue-tsc)
+        run: npm run typecheck -w apps/web
+
+      - name: Frontend unit tests (vitest)
+        run: npm run test -w apps/web
+
   docker:
     name: Build and push Docker image
     runs-on: ubuntu-latest

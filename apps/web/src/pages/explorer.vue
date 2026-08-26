@@ -20,7 +20,7 @@
         size="sm"
         icon="i-bi-house"
         :disabled="!currentDir"
-        @click="showRoots"
+        @click="() => { void showRoots() }"
       >
         Roots
       </UButton>
@@ -89,33 +89,36 @@
   </section>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { storeToRefs } from "pinia";
 
 import ExplorerFile from "../components/explorer/ExplorerFile.vue";
 import ExplorerFolder from "../components/explorer/ExplorerFolder.vue";
-import { useLibraryState } from "../composables/useLibraryState";
+import { useExplorerStore, type LocalMediaEntry, type LocalMediaRoot } from "../stores/explorer";
+import { usePlaylistsStore } from "../stores/playlists";
 
 const route = useRoute();
 const router = useRouter();
 
+const explorerStore = useExplorerStore();
+const playlistsStore = usePlaylistsStore();
+const { playlists } = storeToRefs(playlistsStore);
 const {
-  playlists,
   fetchLocalRoots,
   browseLocalDirectory,
   addLocalPath,
   addLocalFolder,
   playLocalPath,
   playLocalFolder,
-  addLocalPathToPlaylist,
-  addLocalFolderToPlaylist,
-} = useLibraryState();
+} = explorerStore;
+const { addLocalPathToPlaylist, addLocalFolderToPlaylist } = playlistsStore;
 
-const roots = ref([]);
+const roots = ref<LocalMediaRoot[]>([]);
 const currentDir = ref("");
 const activeRoot = ref("");
-const entries = ref([]);
+const entries = ref<LocalMediaEntry[]>([]);
 const loading = ref(false);
 const errorMsg = ref("");
 const includeSubfolders = ref(true);
@@ -123,7 +126,7 @@ const ready = ref(false);
 
 const localPlaylists = computed(() => (playlists.value ?? []).filter((p) => p?.kind !== "remote_youtube"));
 const showingRoots = computed(() => !currentDir.value);
-function compareEntries(a, b) {
+function compareEntries(a: LocalMediaEntry, b: LocalMediaEntry): number {
   const aIsDirectory = a?.kind === "directory";
   const bIsDirectory = b?.kind === "directory";
   if (aIsDirectory !== bIsDirectory) return aIsDirectory ? -1 : 1;
@@ -132,10 +135,10 @@ function compareEntries(a, b) {
   return aName.localeCompare(bName, undefined, { sensitivity: "base", numeric: true });
 }
 
-const visibleEntries = computed(() => {
+const visibleEntries = computed<LocalMediaEntry[]>(() => {
   if (showingRoots.value) {
     return roots.value.map((root) => ({
-      kind: "directory",
+      kind: "directory" as const,
       path: root.path,
       name: root.name || pathLabel(root.path),
     })).sort(compareEntries);
@@ -170,30 +173,30 @@ const breadcrumbs = computed(() => {
   return crumbs;
 });
 
-function pathLabel(path) {
+function pathLabel(path: string): string {
   if (!path) return "/";
   const trimmed = path.replace(/\/+$/, "");
   const parts = trimmed.split("/").filter(Boolean);
   return parts[parts.length - 1] || "/";
 }
 
-function dirParent(path) {
+function dirParent(path: string): string {
   const trimmed = path.replace(/\/+$/, "");
   const index = trimmed.lastIndexOf("/");
   if (index <= 0) return trimmed;
   return trimmed.slice(0, index) || "/";
 }
 
-function isUnderRoot(path, root) {
+function isUnderRoot(path: string, root: string): boolean {
   return path === root || path.startsWith(root.endsWith("/") ? root : `${root}/`);
 }
 
-function normalizeQueryPath(value) {
-  if (Array.isArray(value)) return (value[0] || "").trim();
+function normalizeQueryPath(value: unknown): string {
+  if (Array.isArray(value)) return ((value[0] as string | undefined) || "").trim();
   return typeof value === "string" ? value.trim() : "";
 }
 
-async function syncRoutePath(path) {
+async function syncRoutePath(path: string): Promise<void> {
   const normalizedPath = typeof path === "string" ? path.trim() : "";
   const nextQuery = { ...route.query };
   if (normalizedPath) {
@@ -204,21 +207,21 @@ async function syncRoutePath(path) {
   await router.replace({ query: nextQuery });
 }
 
-async function loadRoots() {
+async function loadRoots(): Promise<void> {
   loading.value = true;
   errorMsg.value = "";
   try {
     const data = await fetchLocalRoots();
     roots.value = data.roots ?? [];
   } catch (error) {
-    errorMsg.value = error?.message || "Could not load media roots";
+    errorMsg.value = (error as { message?: string })?.message || "Could not load media roots";
     roots.value = [];
   } finally {
     loading.value = false;
   }
 }
 
-async function loadDirectory(path) {
+async function loadDirectory(path: string): Promise<void> {
   const localPath = path;
   loading.value = true;
   errorMsg.value = "";
@@ -228,7 +231,7 @@ async function loadDirectory(path) {
     entries.value = data.entries ?? [];
   } catch (error) {
     if (currentDir.value !== localPath) return;
-    errorMsg.value = error?.message || "Browse failed";
+    errorMsg.value = (error as { message?: string })?.message || "Browse failed";
     entries.value = [];
   } finally {
     if (currentDir.value === localPath) {
@@ -237,7 +240,8 @@ async function loadDirectory(path) {
   }
 }
 
-async function openDirectory(path, { updateRoute = true } = {}) {
+async function openDirectory(path: string, options: { updateRoute?: boolean } = {}): Promise<void> {
+  const { updateRoute = true } = options;
   if (!path) return;
   if (!activeRoot.value || path === activeRoot.value || roots.value.some((root) => root.path === path)) {
     activeRoot.value = roots.value.some((root) => root.path === path) ? path : activeRoot.value;
@@ -249,7 +253,8 @@ async function openDirectory(path, { updateRoute = true } = {}) {
   }
 }
 
-async function showRoots({ updateRoute = true } = {}) {
+async function showRoots(options: { updateRoute?: boolean } = {}): Promise<void> {
+  const { updateRoute = true } = options;
   currentDir.value = "";
   activeRoot.value = "";
   entries.value = [];
@@ -259,43 +264,43 @@ async function showRoots({ updateRoute = true } = {}) {
   }
 }
 
-async function openBreadcrumb(path) {
+async function openBreadcrumb(path: string): Promise<void> {
   if (!path) return;
   await openDirectory(path);
 }
 
-async function goUp() {
+async function goUp(): Promise<void> {
   if (!canGoUp.value) return;
   const parent = dirParent(currentDir.value);
   const nextPath = isUnderRoot(parent, activeRoot.value) ? parent : activeRoot.value;
   await openDirectory(nextPath);
 }
 
-function queueFile(path) {
+function queueFile(path: string): void {
   addLocalPath(path);
 }
 
-function playFile(path) {
+function playFile(path: string): void {
   playLocalPath(path);
 }
 
-function queueFolder(path) {
+function queueFolder(path: string): void {
   addLocalFolder(path, { recursive: includeSubfolders.value });
 }
 
-function playFolder(path) {
+function playFolder(path: string): void {
   playLocalFolder(path, { recursive: includeSubfolders.value });
 }
 
-function addFileToPlaylist(playlistId, path) {
+function addFileToPlaylist(playlistId: string, path: string): void {
   addLocalPathToPlaylist(playlistId, path);
 }
 
-function addFolderToPlaylist(playlistId, path) {
+function addFolderToPlaylist(playlistId: string, path: string): void {
   addLocalFolderToPlaylist(playlistId, path, { recursive: includeSubfolders.value });
 }
 
-async function restorePathFromRoute(pathQuery) {
+async function restorePathFromRoute(pathQuery: unknown): Promise<void> {
   const path = normalizeQueryPath(pathQuery);
   if (!path) {
     if (!showingRoots.value) {

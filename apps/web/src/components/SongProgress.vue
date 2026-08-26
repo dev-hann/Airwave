@@ -19,32 +19,41 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from "vue";
-import { debounce } from "../composables/useDebounce";
-import { formatDuration } from "../composables/useDuration";
+import { debounce } from "../utils/debounce";
+import { formatDuration } from "../utils/duration";
 
-const props = defineProps({
-  progressPercent: { type: Number, default: 0 },
-  elapsedSeconds: { type: Number, default: null },
-  durationSeconds: { type: Number, default: null },
-  canSeek: { type: Boolean, default: false },
-  size: { type: String, default: "md" },
-});
+const props = withDefaults(
+  defineProps<{
+    progressPercent?: number | null;
+    elapsedSeconds?: number | null;
+    durationSeconds?: number | null;
+    canSeek?: boolean;
+    size?: string;
+  }>(),
+  {
+    progressPercent: 0,
+    elapsedSeconds: null,
+    durationSeconds: null,
+    canSeek: false,
+    size: "md",
+  },
+);
 
-const emit = defineEmits(["seek"]);
+const emit = defineEmits<{ seek: [percent: number] }>();
 
 const SEEK_DEBOUNCE_MS = 150;
 const SEEK_IDLE_MS = 400;
 const isSeeking = ref(false);
 const localSeekPercent = ref(0);
-let seekIdleTimer = null;
+let seekIdleTimer: ReturnType<typeof setTimeout> | null = null;
 
 const seekSliderValue = computed(() =>
   isSeeking.value ? localSeekPercent.value : (props.progressPercent ?? 0)
 );
 
-function onSeekInput(value) {
+function onSeekInput(value: number | number[] | null | undefined): void {
   const percent = Array.isArray(value) ? value[0] : value;
   const num = Number(percent ?? 0);
   if (!Number.isFinite(num)) return;
@@ -59,7 +68,7 @@ function onSeekInput(value) {
   debouncedSeek(clamped);
 }
 
-const debouncedSeek = debounce((percent) => emit("seek", percent), SEEK_DEBOUNCE_MS);
+const debouncedSeek = debounce((percent: number) => emit("seek", percent), SEEK_DEBOUNCE_MS);
 
 onBeforeUnmount(() => {
   if (seekIdleTimer) clearTimeout(seekIdleTimer);

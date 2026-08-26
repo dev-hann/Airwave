@@ -32,7 +32,7 @@
               type="button"
               class="w-full text-left rounded-md border px-2 py-2 text-sm transition-colors surface-panel"
               :class="item.id === activeItemId ? 'border-primary-500 bg-primary-500/10' : 'border-transparent hover:border-neutral-600'"
-              @click="activeItemId = item.id"
+              @click="() => { activeItemId = item.id }"
             >
               <p class="truncate font-medium">{{ item.title || "Untitled" }}</p>
               <p v-if="item.channel" class="truncate text-xs text-muted">{{ item.channel }}</p>
@@ -62,7 +62,7 @@
                   {{ providerLabel(prov) }}
                 </h3>
                 <ul v-if="(activeItem.results_by_provider?.[prov] || []).length" class="space-y-2">
-                  <li v-for="(hit, idx) in activeItem.results_by_provider[prov]" :key="hit.source_url + idx">
+                  <li v-for="(hit, idx) in activeItem.results_by_provider?.[prov] ?? []" :key="hit.source_url + idx">
                  
                       <Song :item="hit" mode="search"  :class="isHitSelected(activeItem, hit) ? 'border-primary-500 bg-primary-500/10' : 'border-neutral-600 hover:border-neutral-500'"
                       @click="selectHit(activeItem, hit)" />
@@ -78,23 +78,57 @@
   </section>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
-import { fetchJson } from "../../composables/useApi";
-import { useNotifications } from "../../composables/useNotifications";
+import { fetchJson } from "../../lib/api/http";
+import { useNotificationsStore } from "../../stores/notifications";
+
+interface ImportHit {
+  source_url: string;
+  normalized_url?: string | null;
+  provider?: string | null;
+  provider_item_id?: string | null;
+  title?: string | null;
+  channel?: string | null;
+  duration_seconds?: number | null;
+  thumbnail_url?: string | null;
+}
+
+interface ImportItem extends ImportHit {
+  id: number;
+  status?: string | null;
+  hits?: ImportHit[];
+  selected?: ImportHit | null;
+  results_by_provider?: Record<string, ImportHit[]>;
+}
+
+interface ImportProgress {
+  provider?: string | null;
+  tracks_total?: number | null;
+  tracks_completed?: number | null;
+  track_index?: number | null;
+  parallel_providers?: boolean;
+}
+
+interface ImportState {
+  items?: ImportItem[];
+  search_done?: boolean;
+  progress?: ImportProgress;
+}
 
 const route = useRoute();
 const router = useRouter();
-const { notifyError } = useNotifications();
+const notifications = useNotificationsStore();
+const notifyError = (title: string, error: unknown) => notifications.notifyError(title, error);
 
 const playlistId = computed(() => route.params.id);
-const items = ref([]);
+const items = ref<ImportItem[]>([]);
 const searchDone = ref(false);
-const progress = ref({});
+const progress = ref<ImportProgress>({});
 const loadError = ref("");
-const activeItemId = ref(null);
+const activeItemId = ref<number | null>(null);
 const runningSearch = ref(false);
 
 const providerOrder = ["youtube"];
@@ -124,49 +158,49 @@ const progressLabel = computed(() => {
   return "";
 });
 
-function providerLabel(id) {
+function providerLabel(id: string | null | undefined): string {
   if (!id) return "";
   return id.charAt(0).toUpperCase() + id.slice(1);
 }
 
-function statusLabel(s) {
+function statusLabel(s: string | null | undefined): string {
   if (s === "matched") return "Matched";
   if (s === "no_match") return "No match";
   if (s === "searching") return "Searching…";
   return s || "";
 }
 
-function statusBadgeColor(s) {
+function statusBadgeColor(s: string | null | undefined): string {
   if (s === "matched") return "success";
   if (s === "no_match") return "error";
   if (s === "searching") return "warning";
   return "neutral";
 }
 
-function isHitSelected(item, hit) {
+function isHitSelected(item: ImportItem | null, hit: ImportHit | null): boolean {
   const sel = item?.selected;
   if (!sel || !hit?.source_url) return false;
   return sel.source_url === hit.source_url && (sel.provider || "") === (hit.provider || "");
 }
 
-function applySnapshot(out, expectedPlaylistId) {
+function applySnapshot(out: ImportState | null, expectedPlaylistId: unknown): void {
   if (!out || typeof out !== "object") return;
   if (expectedPlaylistId != null && playlistId.value !== expectedPlaylistId) return;
   if (Array.isArray(out.items)) items.value = out.items;
   searchDone.value = !!out.search_done;
   progress.value = out.progress || {};
   if (!activeItemId.value && items.value.length) {
-    activeItemId.value = items.value[0].id;
+    activeItemId.value = items.value[0]!.id;
   }
 }
 
-async function runSearchLoop(expectedId) {
+async function runSearchLoop(expectedId: unknown): Promise<void> {
   if (!expectedId) return;
   runningSearch.value = true;
   try {
     let done = false;
     while (!done) {
-      const out = await fetchJson(`/api/spotify/import/${expectedId}/advance`, { method: "POST" });
+      const out = await fetchJson<ImportState>(`/api/spotify/import/${expectedId}/advance`, { method: "POST" });
       if (playlistId.value !== expectedId) return;
       applySnapshot(out, expectedId);
       done = !!out.search_done;
@@ -180,11 +214,11 @@ async function runSearchLoop(expectedId) {
   }
 }
 
-async function selectHit(item, hit) {
+async function selectHit(item: ImportItem | null, hit: ImportHit | null): Promise<void> {
   const expectedId = playlistId.value;
   if (!expectedId || !item?.id || !hit?.source_url) return;
   try {
-    const out = await fetchJson(`/api/spotify/import/${expectedId}/entries/${item.id}`, {
+    const out = await fetchJson<ImportState>(`/api/spotify/import/${expectedId}/entries/${item.id}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -206,7 +240,7 @@ async function selectHit(item, hit) {
   }
 }
 
-function goToPlaylist() {
+function goToPlaylist(): void {
   if (playlistId.value) router.push(`/playlist/${playlistId.value}`);
 }
 
@@ -218,7 +252,7 @@ watch(
   },
 );
 
-async function loadPage() {
+async function loadPage(): Promise<void> {
   const expectedId = playlistId.value;
   if (!expectedId) {
     loadError.value = "Missing playlist id";
@@ -233,7 +267,7 @@ async function loadPage() {
     sessionStorage.setItem(storageKey, "1");
     if (playlistId.value !== expectedId) return;
 
-    const initial = await fetchJson(`/api/spotify/import/${expectedId}/state`);
+    const initial = await fetchJson<ImportState>(`/api/spotify/import/${expectedId}/state`);
     if (playlistId.value !== expectedId) return;
     applySnapshot(initial, expectedId);
     if (!initial.search_done) {

@@ -202,23 +202,28 @@
   </section>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { RepeatMode } from "@airwave/shared";
 import { computed, inject } from "vue";
+import type { Ref } from "vue";
 import { useRouter } from "vue-router";
-import { useLibraryState } from "../composables/useLibraryState";
-import { usePlaybackState } from "../composables/usePlaybackState";
+import { storeToRefs } from "pinia";
+import { usePlaybackStore } from "../stores/playback";
 
-const {
-  localVolume,
-  isMuted,
-  setLocalVolume,
-  toggleMuted,
-} = inject("localPlayback");
+interface LocalPlaybackInjection {
+  localVolume: Ref<number>;
+  isMuted: Ref<boolean>;
+  setLocalVolume: (volume: number) => void;
+  toggleMuted: () => void;
+}
+
+const { localVolume, isMuted, setLocalVolume, toggleMuted } = inject<LocalPlaybackInjection>("localPlayback")!;
 
 const router = useRouter();
-const { playbackState } = usePlaybackState();
-const { skipCurrent, previousTrack, togglePause, setRepeatMode, setShuffleEnabled, seekToPercent, toggleLikeCurrentSong } = useLibraryState();
+const playbackStore = usePlaybackStore();
+const { playbackState } = storeToRefs(playbackStore);
+const { skipCurrent, previousTrack, togglePause, setRepeatMode, setShuffleEnabled, seekToPercent, toggleLikeCurrentSong } =
+  playbackStore;
 
 const bgStyle = computed(() => {
   const url = playbackState.value.now_playing_thumbnail_url;
@@ -242,8 +247,8 @@ const localVolumeIcon = computed(() => {
   return "i-bi-volume-up-fill";
 });
 
-function close() {
-  const backPath = typeof window !== "undefined" ? window.history.state?.back : null;
+function close(): void {
+  const backPath = typeof window !== "undefined" ? (window.history.state as { back?: unknown } | null)?.back : null;
   if (typeof backPath === "string" && backPath.startsWith("/")) {
     router.back();
     return;
@@ -251,14 +256,14 @@ function close() {
   router.push("/");
 }
 
-function cycleRepeatMode() {
-  const modes = ["off", "all", "one"];
+function cycleRepeatMode(): void {
+  const modes = ["off", "all", "one"] as const;
   const currentMode = playbackState.value.repeat_mode || "off";
-  const nextMode = modes[(modes.indexOf(currentMode) + 1) % modes.length];
+  const nextMode = modes[(modes.indexOf(currentMode) + 1) % modes.length]!;
   setRepeatMode(nextMode);
 }
 
-function onLocalVolumeChange(value) {
+function onLocalVolumeChange(value: number | number[] | null | undefined): void {
   const sliderValue = Array.isArray(value) ? value[0] : value;
   const nextPercent = Number(sliderValue ?? 0);
   if (!Number.isFinite(nextPercent)) return;

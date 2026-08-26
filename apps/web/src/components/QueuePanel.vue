@@ -41,32 +41,39 @@
   </section>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { storeToRefs } from "pinia";
 
 import { VueDraggable } from "vue-draggable-plus";
 
-import { useLibraryState } from "../composables/useLibraryState";
+import { usePlaylistsStore } from "../stores/playlists";
+import { useQueueStore } from "../stores/queue";
+import type { QueueItem } from "../types/api";
 
 import Song from "./Song.vue";
 
-const { queue, playlists, clearQueue, reorderQueueItem } = useLibraryState();
+const queueStore = useQueueStore();
+const playlistsStore = usePlaylistsStore();
+const { queue } = storeToRefs(queueStore);
+const { playlists } = storeToRefs(playlistsStore);
+const { clearQueue, reorderQueueItem } = queueStore;
 
 const playingItems = computed(() => queue.value.filter((item) => item.status === "playing"));
 
-const queuedItems = ref([]);
+const queuedItems = ref<QueueItem[]>([]);
 
-function syncQueuedItems() {
+function syncQueuedItems(): void {
   queuedItems.value = queue.value.filter((item) => item.status === "queued");
 }
 
-watch(queue, syncQueuedItems, { immediate: true });
+watch(queue, syncQueuedItems, { immediate: true, deep: true });
 
-function onReorderEnd(evt) {
+function onReorderEnd(evt: { oldIndex?: number; newIndex?: number }): void {
   const { oldIndex, newIndex } = evt;
   if (oldIndex === newIndex) return;
-  const item = queuedItems.value[newIndex];
+  const item = queuedItems.value[newIndex ?? -1];
   if (!item?.id) return;
-  reorderQueueItem(item.id, newIndex);
+  reorderQueueItem(item.id, newIndex ?? 0);
 }
 </script>

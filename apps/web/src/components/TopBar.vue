@@ -16,7 +16,7 @@
           variant="ghost"
           icon="i-bi-house-fill"
           class="self-start sm:self-auto"
-          @click="router.push('/')"
+          @click="() => { router.push('/') }"
         />
         <UInput
           v-model="unifiedInput"
@@ -33,7 +33,7 @@
               class="cursor-pointer"
               icon="i-lucide-circle-x"
               aria-label="Clear input"
-              @click="unifiedInput = ''"
+              @click="() => { unifiedInput = '' }"
             />
           </template>
         </UInput>
@@ -88,7 +88,7 @@
           icon="i-bi-folder-fill"
           class="flex-shrink-0"
           aria-label="Media Browser"
-          @click="router.push('/explorer')"
+          @click="() => { router.push('/explorer') }"
         />
         <UButton
           type="button"
@@ -96,7 +96,7 @@
           variant="ghost"
           icon="i-bi-gear-fill"
           class="flex-shrink-0"
-          @click="router.push('/settings')"
+          @click="() => { router.push('/settings') }"
         />
       </div>
     </div>
@@ -114,7 +114,7 @@
           icon="i-bi-folder-fill"
           class="h-10"
           aria-label="Media Browser"
-          @click="router.push('/explorer')"
+          @click="() => { router.push('/explorer') }"
         />
         <UButton
           type="button"
@@ -123,7 +123,7 @@
           icon="i-bi-plus-circle-fill"
           class="h-10"
           aria-label="Add URL"
-          @click="addUrlSheetOpen = true"
+          @click="() => { addUrlSheetOpen = true }"
         />
       </div>
     </div>
@@ -183,24 +183,35 @@
   </header>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { storeToRefs } from "pinia";
 
 import PlaylistSelectorFilter from "./PlaylistSelectorFilter.vue";
 import { useBreakpoint } from "../composables/useBreakpoint";
-import { useLibraryState } from "../composables/useLibraryState";
 import { usePlaylistSelector } from "../composables/usePlaylistSelector";
-import { useUiState } from "../composables/useUiState";
+import { usePlaylistsStore } from "../stores/playlists";
+import { useQueueStore } from "../stores/queue";
+import { useUiStore } from "../stores/ui";
+import type { DropdownMenuItem } from "@nuxt/ui";
+import type { Playlist } from "../types/api";
 
 const { isMobile } = useBreakpoint();
 const unifiedInput = ref("");
 const addUrlSheetOpen = ref(false);
 const router = useRouter();
 const route = useRoute();
-const { queue, playlists, addUrl, playUrl, importPlaylistUrl, startSpotifyImportFromUrl, importPlaylistIntoPlaylist, addUrlToPlaylist } = useLibraryState();
+const queueStore = useQueueStore();
+const playlistsStore = usePlaylistsStore();
+const { queue } = storeToRefs(queueStore);
+const { playlists } = storeToRefs(playlistsStore);
+const { addUrl, playUrl } = queueStore;
+const { importPlaylistUrl, startSpotifyImportFromUrl, importPlaylistIntoPlaylist } = playlistsStore;
 const { playlistSearchTerm, filteredPlaylists, resetSearch } = usePlaylistSelector(playlists);
-const { searchText, onSearchTextChange, onSearchSubmit } = useUiState();
+const uiStore = useUiStore();
+const { searchText, onSearchTextChange, onSearchSubmit } = uiStore;
+void searchText;
 
 const ACTION_IDS = {
   PLAY_URL: "play-url",
@@ -208,9 +219,11 @@ const ACTION_IDS = {
   QUEUE_PLAYLIST: "queue-playlist",
   IMPORT_PLAYLIST: "import-playlist",
   ADD_URL: "add-url",
-};
+} as const;
 
-function parseInputUrl(rawUrl) {
+type ActionId = (typeof ACTION_IDS)[keyof typeof ACTION_IDS];
+
+function parseInputUrl(rawUrl: string): URL | null {
   const url = rawUrl.trim();
   if (!url) return null;
   try {
@@ -220,7 +233,7 @@ function parseInputUrl(rawUrl) {
   }
 }
 
-function hasPlaylistId(rawUrl) {
+function hasPlaylistId(rawUrl: string): boolean {
   const parsed = parseInputUrl(rawUrl);
   if (parsed) {
     return !!parsed.searchParams.get("list");
@@ -228,13 +241,13 @@ function hasPlaylistId(rawUrl) {
   return rawUrl.includes("list=");
 }
 
-function isStartRadioUrl(rawUrl) {
+function isStartRadioUrl(rawUrl: string): boolean {
   const parsed = parseInputUrl(rawUrl);
   if (!parsed) return false;
   return parsed.searchParams.get("start_radio") === "1";
 }
 
-function getVideoOnlyUrl(rawUrl) {
+function getVideoOnlyUrl(rawUrl: string): string {
   const parsed = parseInputUrl(rawUrl);
   if (!parsed) return rawUrl;
   const videoId = parsed.searchParams.get("v");
@@ -250,13 +263,13 @@ function getVideoOnlyUrl(rawUrl) {
   return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
 }
 
-function isCanonicalPlaylistPath(rawUrl) {
+function isCanonicalPlaylistPath(rawUrl: string): boolean {
   const parsed = parseInputUrl(rawUrl);
   if (!parsed) return false;
   return parsed.pathname.includes("/playlist") && !!parsed.searchParams.get("list");
 }
 
-function isSpotifyPlaylistUrl(rawUrl) {
+function isSpotifyPlaylistUrl(rawUrl: string): boolean {
   const parsed = parseInputUrl(rawUrl);
   if (!parsed) return false;
   const host = parsed.hostname.toLowerCase();
@@ -264,7 +277,7 @@ function isSpotifyPlaylistUrl(rawUrl) {
   return /^\/playlist\//i.test(parsed.pathname);
 }
 
-function getCanonicalPlaylistUrl(rawUrl) {
+function getCanonicalPlaylistUrl(rawUrl: string): string {
   const parsed = parseInputUrl(rawUrl);
   if (!parsed) return rawUrl;
 
@@ -287,7 +300,9 @@ const isUrlInput = computed(
   () => unifiedInput.value.trim().toLowerCase().startsWith("http"),
 );
 
-const actionContext = computed(() => {
+type ActionContext = "single" | "spotify-playlist" | "canonical-playlist" | "start-radio" | "playlist-capable";
+
+const actionContext = computed<ActionContext>(() => {
   const rawUrl = unifiedInput.value.trim();
   if (!rawUrl) return "single";
   if (isSpotifyPlaylistUrl(rawUrl)) return "spotify-playlist";
@@ -297,7 +312,7 @@ const actionContext = computed(() => {
   return "single";
 });
 
-const defaultActionId = computed(() => {
+const defaultActionId = computed<ActionId>(() => {
   if (actionContext.value === "spotify-playlist") {
     return ACTION_IDS.IMPORT_PLAYLIST;
   }
@@ -312,11 +327,17 @@ const defaultActionId = computed(() => {
   return ACTION_IDS.PLAY_URL;
 });
 
-const availableActions = computed(() => {
+interface ActionEntry {
+  id: ActionId;
+  label: string;
+  icon: string;
+}
+
+const availableActions = computed<ActionEntry[]>(() => {
   if (actionContext.value === "spotify-playlist") {
     return [];
   }
-  let base = [
+  let base: ActionEntry[] = [
     { id: ACTION_IDS.PLAY_URL, label: "Play", icon: "i-bi-play-fill" },
     { id: ACTION_IDS.ADD_URL, label: "Queue", icon: "i-bi-music-note-list" },
   ];
@@ -362,7 +383,7 @@ const isPlaylistOrRadioContext = computed(
 );
 
 const actionDropdownItems = computed(() => {
-  const items = availableActions.value.map((action) => ({
+  const items: DropdownMenuItem[] = availableActions.value.map((action) => ({
     label: action.label,
     icon: action.icon,
     onSelect: () => {
@@ -376,7 +397,7 @@ const actionDropdownItems = computed(() => {
     const urlForPlaylist = isStartRadioUrl(rawUrl) ? rawUrl : getCanonicalPlaylistUrl(rawUrl);
     const playlistChildren = [
       { type: "label", slot: "playlist-filter" },
-      ...filteredPlaylists.value.map((p) => ({
+      ...filteredPlaylists.value.map((p: Playlist) => ({
         label: p.title,
         onSelect: () => {
           importPlaylistIntoPlaylist(urlForPlaylist, p.id);
@@ -397,7 +418,7 @@ const actionDropdownItems = computed(() => {
   return items;
 });
 
-function runAction(actionId, closeAfter = false, urlOverride = null) {
+function runAction(actionId: ActionId, closeAfter = false, urlOverride: string | null = null): void {
   const rawUrl = urlOverride ?? unifiedInput.value.trim();
   if (!rawUrl) return;
   unifiedInput.value = "";
@@ -427,11 +448,11 @@ function runAction(actionId, closeAfter = false, urlOverride = null) {
   }
 }
 
-function runPrimaryAction(closeAfter = false) {
+function runPrimaryAction(closeAfter = false): void {
   runAction(defaultActionId.value, closeAfter, unifiedInput.value.trim());
 }
 
-function onImportUrlPlaylistCreated(created) {
+function onImportUrlPlaylistCreated(created: Playlist | null): void {
   if (created?.id == null) return;
   const rawUrl = unifiedInput.value.trim();
   if (!rawUrl) return;
@@ -441,7 +462,7 @@ function onImportUrlPlaylistCreated(created) {
   addUrlSheetOpen.value = false;
 }
 
-function onUnifiedSubmit(closeAfter = false) {
+function onUnifiedSubmit(closeAfter = false): void {
   const raw = unifiedInput.value.trim();
   if (!raw) return;
   if (isUrlInput.value) {

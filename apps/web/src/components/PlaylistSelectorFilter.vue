@@ -7,7 +7,7 @@
         type="text"
         class="min-w-0 flex-1 border-0 bg-transparent px-2 py-1 text-sm placeholder:text-neutral-500 focus:outline-none focus:ring-0"
         :placeholder="placeholder"
-        @input="emit('update:modelValue', $event.target.value)"
+        @input="onInput"
         @click.stop
         @keydown.stop
         @keyup.stop
@@ -46,42 +46,39 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref } from "vue";
 
-import { useLibraryState } from "../composables/useLibraryState";
+import { usePlaylistsStore } from "../stores/playlists";
+import type { Playlist } from "../types/api";
 
-const props = defineProps({
-  modelValue: {
-    type: String,
-    default: "",
-  },
-  placeholder: {
-    type: String,
-    default: "Find a playlist",
-  },
-  showCreate: {
-    type: Boolean,
-    default: true,
-  },
-  createPlaceholder: {
-    type: String,
-    default: "New playlist name",
-  },
-});
+const props = withDefaults(
+  defineProps<{
+    modelValue?: string;
+    placeholder?: string;
+    showCreate?: boolean;
+    createPlaceholder?: string;
+  }>(),
+  { modelValue: "", placeholder: "Find a playlist", showCreate: true, createPlaceholder: "New playlist name" },
+);
+void props;
 
-const emit = defineEmits(["update:modelValue", "playlist-created"]);
+const emit = defineEmits<{ "update:modelValue": [value: string]; "playlist-created": [created: Playlist] }>();
 
-const { createPlaylist } = useLibraryState();
+function onInput(event: Event): void {
+  emit("update:modelValue", (event.target as HTMLInputElement).value);
+}
+
+const playlistsStore = usePlaylistsStore();
 const newTitle = ref("");
 const creating = ref(false);
 
-async function submitCreate() {
+async function submitCreate(): Promise<void> {
   const title = newTitle.value.trim();
   if (!title || creating.value) return;
   creating.value = true;
   try {
-    const created = await createPlaylist(title);
+    const created = await playlistsStore.createPlaylist(title);
     if (created?.id) {
       newTitle.value = "";
       emit("playlist-created", created);

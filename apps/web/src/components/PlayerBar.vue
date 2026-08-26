@@ -182,27 +182,34 @@
   </footer>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { RepeatMode } from "@airwave/shared";
 import { computed, inject } from "vue";
+import type { Ref } from "vue";
 import { useRouter } from "vue-router";
-import { useBreakpoint } from "../composables/useBreakpoint";
-import { useLibraryState } from "../composables/useLibraryState";
-import { usePlaybackState } from "../composables/usePlaybackState";
-import { SIDEBAR_QUEUE_VIEW, useUiState } from "../composables/useUiState";
+import { storeToRefs } from "pinia";
 
-const {
-  localVolume,
-  isMuted,
-  setLocalVolume,
-  toggleMuted,
-} = inject("localPlayback");
+import { useBreakpoint } from "../composables/useBreakpoint";
+import { usePlaybackStore } from "../stores/playback";
+import { SIDEBAR_QUEUE_VIEW, useUiStore, type SidebarView } from "../stores/ui";
+
+interface LocalPlaybackInjection {
+  localVolume: Ref<number>;
+  isMuted: Ref<boolean>;
+  setLocalVolume: (volume: number) => void;
+  toggleMuted: () => void;
+}
+
+const { localVolume, isMuted, setLocalVolume, toggleMuted } = inject<LocalPlaybackInjection>("localPlayback")!;
 
 const router = useRouter();
-const { playbackState } = usePlaybackState();
+const playbackStore = usePlaybackStore();
+const { playbackState } = storeToRefs(playbackStore);
 const { isTabletLayout } = useBreakpoint();
-const { sidebarView, rightSidebarOpen } = useUiState();
-const { skipCurrent, previousTrack, togglePause, setRepeatMode, setShuffleEnabled, seekToPercent, toggleLikeCurrentSong } = useLibraryState();
+const uiStore = useUiStore();
+const { sidebarView, rightSidebarOpen } = storeToRefs(uiStore);
+const { skipCurrent, previousTrack, togglePause, setRepeatMode, setShuffleEnabled, seekToPercent, toggleLikeCurrentSong } =
+  playbackStore;
 
 /** Tablet: highlight only while the overlay is open; desktop: highlight matches visible sidebar. */
 const queueSidebarButtonActive = computed(() => {
@@ -229,7 +236,7 @@ const localVolumeIcon = computed(() => {
   return "i-bi-volume-up-fill";
 });
 
-function toggleRightSidebar(view) {
+function toggleRightSidebar(view: SidebarView): void {
   if (isTabletLayout.value) {
     if (rightSidebarOpen.value && sidebarView.value === view) {
       rightSidebarOpen.value = false;
@@ -242,18 +249,18 @@ function toggleRightSidebar(view) {
   sidebarView.value = view;
 }
 
-function onStripClick() {
+function onStripClick(): void {
   router.push("/fullscreen-player");
 }
 
-function cycleRepeatMode() {
-  const modes = [RepeatMode.OFF, RepeatMode.ALL, RepeatMode.ONE];
+function cycleRepeatMode(): void {
+  const modes = [RepeatMode.OFF, RepeatMode.ALL, RepeatMode.ONE] as const;
   const currentMode = playbackState.value.repeat_mode || RepeatMode.OFF;
-  const nextMode = modes[(modes.indexOf(currentMode) + 1) % modes.length];
+  const nextMode = modes[(modes.indexOf(currentMode) + 1) % modes.length]!;
   setRepeatMode(nextMode);
 }
 
-function onLocalVolumeChange(value) {
+function onLocalVolumeChange(value: number | number[] | null | undefined): void {
   const sliderValue = Array.isArray(value) ? value[0] : value;
   const nextPercent = Number(sliderValue ?? 0);
   if (!Number.isFinite(nextPercent)) return;

@@ -63,44 +63,52 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed } from "vue";
 
 import PlaylistSelectorFilter from "./PlaylistSelectorFilter.vue";
-import { formatDuration } from "../composables/useDuration";
-import { useLibraryState } from "../composables/useLibraryState";
-import { useNotifications } from "../composables/useNotifications";
+import { formatDuration } from "../utils/duration";
 import { usePlaylistSelector } from "../composables/usePlaylistSelector";
+import { useExplorerStore } from "../stores/explorer";
+import { useNotificationsStore } from "../stores/notifications";
+import { usePlaylistsStore } from "../stores/playlists";
+import { useQueueStore } from "../stores/queue";
+import type { DropdownMenuItem } from "@nuxt/ui";
+import type { Playlist } from "../types/api";
 
-const props = defineProps({
-  item: {
-    type: Object,
-    required: true,
-  },
-  mode: {
-    type: String,
-    default: "search",
-    validator: (v) => ["search", "queue", "history"].includes(v),
-  },
-  playlists: {
-    type: Array,
-    default: () => [],
-  },
-  playlistId: {
-    type: String,
-    default: null,
-  },
-  entryId: {
-    type: Number,
-    default: null,
-  },
-});
+/** Union of track-like rows (queue item, history row, playlist entry, search result). */
+type SongMode = "search" | "queue" | "history" | "playlist";
 
-const emit = defineEmits(["deleted"]);
+interface SongItem {
+  id?: number;
+  source_url: string;
+  title?: string | null;
+  channel?: string | null;
+  provider?: string | null;
+  thumbnail_url?: string | null;
+  status?: string;
+  duration_seconds?: number | null;
+}
+
+const props = withDefaults(
+  defineProps<{
+    item: SongItem;
+    mode?: SongMode;
+    playlists?: Playlist[];
+    playlistId?: string | null;
+    entryId?: number | null;
+  }>(),
+  { mode: "search", playlists: () => [], playlistId: null, entryId: null },
+);
+
+const emit = defineEmits<{ deleted: [entryId: number] }>();
 
 const { playlistSearchTerm, filteredPlaylists, resetSearch } = usePlaylistSelector(() => props.playlists);
-const { notifyError } = useNotifications();
-const { playUrl, addUrl, addUrlToPlaylist, addLocalPathToPlaylist,addLocalPath, playLocalPath, removeFromQueue, removeFromPlaylist } = useLibraryState();
+const notifications = useNotificationsStore();
+const queueStore = useQueueStore();
+const playlistsStore = usePlaylistsStore();
+const explorerStore = useExplorerStore();
+const notifyError = (title: string, error: unknown) => notifications.notifyError(title, error);
 
 const thumbnailSrc = computed(() => props.item?.thumbnail_url || "");
 
@@ -114,83 +122,76 @@ const providerLabel = computed(() => {
   return "";
 });
 
-async function addToQueue(provider, url) {
+async function addToQueue(provider: string | null | undefined, url: string): Promise<void> {
   if (!url) return;
   try {
     if (provider === "local") {
-      await addLocalPath(url);
+      await explorerStore.addLocalPath(url);
     } else {
-      await addUrl(url);
+      await queueStore.addUrl(url);
     }
   } catch (error) {
     notifyError("Could not add to queue", error);
   }
 }
 
-async function playNow(provider, url) {
+async function playNow(provider: string | null | undefined, url: string): Promise<void> {
   if (!url) return;
   if (provider === "local") {
-    await playLocalPath(url);
+    await explorerStore.playLocalPath(url);
   } else {
-    await playUrl(url);
+    await queueStore.playUrl(url);
   }
 }
 
-async function addToPlaylist(playlistId, provider, url) {
+async function addToPlaylist(playlistId: string, provider: string | null | undefined, url: string): Promise<void> {
   if (!playlistId || !url) return;
   try {
     if (provider === "local") {
-      await addLocalPathToPlaylist(playlistId, url);
+      await playlistsStore.addLocalPathToPlaylist(playlistId, url);
     } else {
-      await addUrlToPlaylist(playlistId, url);
+      await playlistsStore.addUrlToPlaylist(playlistId, url);
     }
   } finally {
     resetSearch();
   }
 }
 
-async function onPlaylistCreated(created) {
+async function onPlaylistCreated(created: Playlist | null): Promise<void> {
   if (created?.id == null) return;
   await addToPlaylist(created.id, props.item?.provider, props.item?.source_url);
 }
 
-
-const dropdownItems = computed(() => {
+const dropdownItems = computed<DropdownMenuItem[][]>(() => {
   const url = props.item?.source_url;
   const provider = props.item?.provider;
   const hasUrl = !!url;
-  const items = [[]];
-  if(hasUrl) {
-    items[0].push(
-      {
-        label: "Play now",
-        icon: "i-bi-play-fill",
-        onSelect: () => playNow(provider, url),
-      },
-    );
-  
-    if(props.mode !== "queue") {
-      items[0].push(
-        {
-          label: "Add to queue",
-          icon: "i-bi-music-note-list",
-          onSelect: () => addToQueue(provider, url),
-        },
-      );
+  const items: DropdownMenuItem[][] = [[]];
+  if (hasUrl) {
+    items[0]!.push({
+      label: "Play now",
+      icon: "i-bi-play-fill",
+      onSelect: () => playNow(provider, url),
+    });
+
+    if (props.mode !== "queue") {
+      items[0]!.push({
+        label: "Add to queue",
+        icon: "i-bi-music-note-list",
+        onSelect: () => addToQueue(provider, url),
+      });
     }
-    if(props.mode === "queue") {
-      items[0].push(
-        {
-          label: "Remove from queue",
-          icon: "i-bi-trash-fill",
-          color: "error",
-          onSelect: () => removeFromQueue(props.item.id),
-        },
-      );
+    if (props.mode === "queue") {
+      items[0]!.push({
+        label: "Remove from queue",
+        icon: "i-bi-trash-fill",
+        color: "error",
+        onSelect: () => queueStore.removeFromQueue(props.item.id!),
+      });
     }
   }
- 
-  const addToPlaylistChildren = [
+
+  const addToPlaylistChildren: DropdownMenuItem[] = [
     { type: "label", slot: "playlist-filter" },
     ...filteredPlaylists.value.map((p) => ({
       label: p.title,
@@ -216,13 +217,13 @@ const dropdownItems = computed(() => {
         color: "error",
         onSelect: async () => {
           try {
-            await removeFromPlaylist(props.entryId);
-            emit("deleted", props.entryId);
+            await playlistsStore.removeFromPlaylist(props.entryId!);
+            emit("deleted", props.entryId!);
           } catch (error) {
             notifyError("Could not remove from playlist", error);
           }
         },
-      },
+      } satisfies DropdownMenuItem,
     ]);
   }
   return items;

@@ -54,7 +54,7 @@
           :ui="{ rounded: 'rounded-full' }"
           :disabled="!entries.length"
           aria-label="Play playlist"
-          @click="playPlaylistNow(playlist.id)"
+          @click="() => { void playPlaylistNow(playlist.id!) }"
         />
         <div v-if="isPlaylistSyncable(playlist) && playlist.can_edit" class="flex items-center">
           <UButton
@@ -121,7 +121,7 @@
               class="cursor-pointer"
               icon="i-lucide-circle-x"
               aria-label="Clear input"
-              @click="songSearchTerm = ''"
+              @click="() => { songSearchTerm = '' }"
             />
           </template>
         </UInput>
@@ -191,7 +191,7 @@
           rows="3"
         />
         <div class="mt-4 flex justify-end gap-2">
-          <UButton type="button" color="neutral" variant="ghost" @click="editModalOpen = false">
+          <UButton type="button" color="neutral" variant="ghost" @click="() => { editModalOpen = false }">
             Cancel
           </UButton>
           <UButton type="submit" color="primary" variant="solid">
@@ -211,7 +211,7 @@
           This cannot be undone.
         </p>
         <div class="mt-4 flex justify-end gap-2">
-          <UButton type="button" color="neutral" variant="ghost" @click="deleteModalOpen = false">
+          <UButton type="button" color="neutral" variant="ghost" @click="() => { deleteModalOpen = false }">
             Cancel
           </UButton>
           <UButton
@@ -228,20 +228,24 @@
   </UModal>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { storeToRefs } from "pinia";
 
 import { VueDraggable } from "vue-draggable-plus";
 import Song from "../../components/Song.vue";
 import PlaylistSelectorFilter from "../../components/PlaylistSelectorFilter.vue";
-import { fetchJson } from "../../composables/useApi";
-import { formatTotalDuration } from "../../composables/useDuration";
-import { useLibraryState } from "../../composables/useLibraryState";
+import { fetchJson } from "../../lib/api/http";
 import { usePlaylistSelector } from "../../composables/usePlaylistSelector";
+import { usePlaylistsStore } from "../../stores/playlists";
+import type { DropdownMenuItem } from "@nuxt/ui";
+import { formatTotalDuration } from "../../utils/duration";
+import type { Playlist, PlaylistEntry } from "../../types/api";
 
+const playlistsStore = usePlaylistsStore();
+const { playlists } = storeToRefs(playlistsStore);
 const {
-  playlists,
   importPlaylistUrl,
   reorderPlaylistEntry,
   playPlaylistNow,
@@ -250,35 +254,35 @@ const {
   updatePlaylist,
   setPlaylistPinned,
   deletePlaylist,
-} = useLibraryState();
+} = playlistsStore;
 const { playlistSearchTerm, filteredPlaylists, resetSearch } = usePlaylistSelector(() => playlists.value);
 const route = useRoute();
 const router = useRouter();
-const playlist = ref({});
-const entries = ref([]);
+const playlist = ref<Partial<Playlist>>({});
+const entries = ref<PlaylistEntry[]>([]);
 const loading = ref(false);
 const notFound = ref(false);
 const errorMessage = ref("");
 const editModalOpen = ref(false);
 const editTitle = ref("");
 const editDescription = ref("");
-const playlistToEdit = ref(null);
+const playlistToEdit = ref<Partial<Playlist> | null>(null);
 const deleteModalOpen = ref(false);
-const playlistToDelete = ref(null);
+const playlistToDelete = ref<Partial<Playlist> | null>(null);
 const firstTrackThumbnail = computed(() => {
-  if(playlist.value?.thumbnail_url) return playlist.value.thumbnail_url;
+  if (playlist.value?.thumbnail_url) return playlist.value.thumbnail_url;
   // Server resolves entry thumbnails (stored URL > provider id > parsed source).
   return entries.value[0]?.thumbnail_url || null;
 });
 const songSearchTerm = ref("");
 
-function playlistUpstreamSource(pl) {
+function playlistUpstreamSource(pl: Partial<Playlist> | null): string {
   if (!pl) return "";
-  return String(pl.source_url ?? pl.source ?? "").trim();
+  return String(pl.source_url ?? (pl as { source?: string }).source ?? "").trim();
 }
 
 /** True when the playlist has an http(s) upstream (yt-dlp or Spotify web); excludes custom and app-internal URLs. */
-function isPlaylistSyncable(pl) {
+function isPlaylistSyncable(pl: Partial<Playlist> | null): boolean {
   const src = playlistUpstreamSource(pl);
   if (!src) return false;
   const lower = src.toLowerCase();
@@ -313,10 +317,10 @@ const totalDurationSeconds = computed(() =>
 const formattedTotalDuration = computed(() => formatTotalDuration(totalDurationSeconds.value));
 
 const filteredEntries = computed(() => {
-  return entries.value.filter((e) => e.title.toLowerCase().includes(songSearchTerm.value.toLowerCase()));
+  return entries.value.filter((e) => (e.title || "").toLowerCase().includes(songSearchTerm.value.toLowerCase()));
 });
 
-function onEntryDeleted(entryId) {
+function onEntryDeleted(entryId: number): void {
   const id = Number(entryId);
   if (!Number.isFinite(id)) return;
   const idx = entries.value.findIndex((e) => e?.id === id);
@@ -330,12 +334,12 @@ function onEntryDeleted(entryId) {
   }
 }
 
-const dropdownItems = computed(() => {
+const dropdownItems = computed<DropdownMenuItem[]>(() => {
   const pl = playlist.value;
   if (!pl?.id) return [];
-  const items = [
-      { label: "Queue", icon: "i-bi-music-note-list", class: "cursor-pointer", onSelect: () => queuePlaylist(pl.id) },
-      { label: "Play now", icon: "i-bi-play-fill", class: "cursor-pointer", onSelect: () => playPlaylistNow(pl.id) },
+  const items: DropdownMenuItem[] = [
+      { label: "Queue", icon: "i-bi-music-note-list", class: "cursor-pointer", onSelect: () => queuePlaylist(pl.id!) },
+      { label: "Play now", icon: "i-bi-play-fill", class: "cursor-pointer", onSelect: () => playPlaylistNow(pl.id!) },
   ];
   const otherPlaylists = (filteredPlaylists.value ?? []).filter((p) => p.id !== pl.id);
   if (entries.value.length > 0) {
@@ -361,7 +365,7 @@ const dropdownItems = computed(() => {
       label: pinned ? "Unpin" : "Pin",
       icon: pinned ? "i-bi-pin" : "i-bi-pin-fill",
       class: "cursor-pointer",
-      onSelect: () => setPlaylistPinned(pl.id, !pinned),
+      onSelect: () => setPlaylistPinned(pl.id!, !pinned),
     },
     {
       label: "Delete",
@@ -374,35 +378,35 @@ const dropdownItems = computed(() => {
   return items;
 });
 
-async function addAllEntriesToPlaylist(targetPlaylistId, entriesToAdd) {
+async function addAllEntriesToPlaylist(targetPlaylistId: string, entriesToAdd?: PlaylistEntry[]): Promise<void> {
   const list = entriesToAdd ?? entries.value;
   await addEntriesToPlaylist(targetPlaylistId, list, { onComplete: loadPlaylist });
   resetSearch();
 }
 
-function onAddToNewPlaylistFromPage(created) {
+function onAddToNewPlaylistFromPage(created: Playlist | null): void {
   if (created?.id != null) addAllEntriesToPlaylist(created.id, entries.value);
 }
 
-function importRemotePlaylist() {
+function importRemotePlaylist(): void {
   if (!playlist.value?.source_url) return;
   importPlaylistUrl(playlist.value.source_url);
 }
 
-function openEditModal(pl) {
+function openEditModal(pl: Partial<Playlist>): void {
   playlistToEdit.value = pl;
   editModalOpen.value = true;
 }
 
-function openDeleteModal(pl) {
+function openDeleteModal(pl: Partial<Playlist>): void {
   playlistToDelete.value = pl;
   deleteModalOpen.value = true;
 }
 
-async function submitEdit() {
+async function submitEdit(): Promise<void> {
   const title = editTitle.value.trim();
   if (!title || !playlistToEdit.value) return;
-  await updatePlaylist(playlistToEdit.value.id, {
+  await updatePlaylist(playlistToEdit.value.id!, {
     title,
     description: editDescription.value.trim(),
   });
@@ -411,26 +415,26 @@ async function submitEdit() {
   loadPlaylist();
 }
 
-async function setSyncEnabled(enabled) {
+async function setSyncEnabled(enabled: boolean): Promise<void> {
   const pl = playlist.value;
   if (!pl?.id || !pl.can_edit) return;
   const updated = await updatePlaylist(pl.id, { sync_enabled: !!enabled }, { notify: false });
   if (updated) playlist.value = { ...pl, ...updated };
 }
 
-async function setSyncRemoveMissing(enabled) {
+async function setSyncRemoveMissing(enabled: boolean): Promise<void> {
   const pl = playlist.value;
   if (!pl?.id || !pl.can_edit) return;
   const updated = await updatePlaylist(pl.id, { sync_remove_missing: !!enabled }, { notify: false });
   if (updated) playlist.value = { ...pl, ...updated };
 }
 
-async function submitDelete() {
+async function submitDelete(): Promise<void> {
   const pl = playlistToDelete.value;
   if (!pl) return;
   deleteModalOpen.value = false;
   playlistToDelete.value = null;
-  await deletePlaylist(pl.id);
+  await deletePlaylist(pl.id!);
   router.push("/playlists");
 }
 
@@ -441,13 +445,13 @@ watch(playlistToEdit, (p) => {
   editDescription.value = p ? (p.description || "") : "";
 });
 
-function playlistIdFromRoute() {
+function playlistIdFromRoute(): string {
   const value = route.params.id;
-  if (Array.isArray(value)) return value[0] || "";
+  if (Array.isArray(value)) return (value[0] as string | undefined) || "";
   return typeof value === "string" ? value : "";
 }
 
-async function loadPlaylist() {
+async function loadPlaylist(): Promise<void> {
   const playlistId = playlistIdFromRoute().trim();
   const activeRequestId = ++requestId;
 
@@ -481,7 +485,7 @@ async function loadPlaylist() {
   }
 
   try {
-    const playlistPayload = await fetchJson(`/api/playlists/${encodeURIComponent(playlistId)}`);
+    const playlistPayload = await fetchJson<Playlist>(`/api/playlists/${encodeURIComponent(playlistId)}`);
     if (activeRequestId !== requestId) return;
     playlist.value = playlistPayload || {};
   } catch (error) {
@@ -496,7 +500,7 @@ async function loadPlaylist() {
   }
 
   try {
-    const entriesPayload = await fetchJson(`/api/playlists/${encodeURIComponent(playlistId)}/entries`);
+    const entriesPayload = await fetchJson<PlaylistEntry[]>(`/api/playlists/${encodeURIComponent(playlistId)}/entries`);
     if (activeRequestId !== requestId) return;
     entries.value = Array.isArray(entriesPayload) ? entriesPayload : [];
   } catch (error) {
@@ -510,12 +514,12 @@ async function loadPlaylist() {
   }
 }
 
-function onReorderEnd(evt) {
+function onReorderEnd(evt: { oldIndex?: number; newIndex?: number }): void {
   const { oldIndex, newIndex } = evt;
   if (oldIndex === newIndex) return;
-  const entry = entries.value[newIndex];
+  const entry = entries.value[newIndex ?? -1];
   if (!entry?.id) return;
-  reorderPlaylistEntry(entry.id, newIndex);
+  reorderPlaylistEntry(entry.id, newIndex ?? 0);
 }
 
 watch(

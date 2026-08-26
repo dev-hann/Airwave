@@ -70,47 +70,53 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { fetchJson } from "../../composables/useApi";
+import { fetchJson } from "../../lib/api/http";
 
-const providers = ref([]);
+interface CookieProviderInfo {
+  provider: string;
+  label?: string | null;
+  configured?: boolean;
+}
+
+const providers = ref<CookieProviderInfo[]>([]);
 const loading = ref(true);
 const loadError = ref("");
-const draftValues = ref({});
+const draftValues = ref<Record<string, string>>({});
 const savingProvider = ref("");
 const resettingProvider = ref("");
 
 const providerRows = computed(() => providers.value || []);
 
-function placeholderFor(provider) {
+function placeholderFor(provider: string): string {
   return `# Netscape HTTP Cookie File\n# or /path/to/${provider}-cookies.txt`;
 }
 
-function canSave(provider) {
+function canSave(provider: string): boolean {
   const value = draftValues.value[provider];
   return typeof value === "string" && value.trim().length > 0;
 }
 
-async function load() {
+async function load(): Promise<void> {
   loading.value = true;
   loadError.value = "";
   try {
-    const response = await fetchJson("/api/settings/cookies");
+    const response = await fetchJson<{ providers?: CookieProviderInfo[] }>("/api/settings/cookies");
     providers.value = response.providers || [];
-    const nextDrafts = {};
+    const nextDrafts: Record<string, string> = {};
     for (const providerInfo of providers.value) {
       nextDrafts[providerInfo.provider] = "";
     }
     draftValues.value = nextDrafts;
   } catch (e) {
-    loadError.value = e?.message || "Failed to load cookie settings.";
+    loadError.value = (e as { message?: string })?.message || "Failed to load cookie settings.";
   } finally {
     loading.value = false;
   }
 }
 
-async function saveProvider(provider) {
+async function saveProvider(provider: string): Promise<void> {
   if (!canSave(provider)) return;
   savingProvider.value = provider;
   loadError.value = "";
@@ -126,13 +132,13 @@ async function saveProvider(provider) {
     draftValues.value[provider] = "";
     await load();
   } catch (e) {
-    loadError.value = e?.message || `Failed to save ${provider} cookies.`;
+    loadError.value = (e as { message?: string })?.message || `Failed to save ${provider} cookies.`;
   } finally {
     savingProvider.value = "";
   }
 }
 
-async function resetProvider(provider) {
+async function resetProvider(provider: string): Promise<void> {
   resettingProvider.value = provider;
   loadError.value = "";
   try {
@@ -142,7 +148,7 @@ async function resetProvider(provider) {
     draftValues.value[provider] = "";
     await load();
   } catch (e) {
-    loadError.value = e?.message || `Failed to reset ${provider} cookies.`;
+    loadError.value = (e as { message?: string })?.message || `Failed to reset ${provider} cookies.`;
   } finally {
     resettingProvider.value = "";
   }

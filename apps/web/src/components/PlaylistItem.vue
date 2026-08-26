@@ -2,7 +2,7 @@
   <li
     class="group flex items-start gap-2 rounded-md border p-2 cursor-pointer transition-colors playlist-card"
     :class="isActive ? 'bg-primary-500/20' : 'hover:bg-neutral-700/50'"
-    @click="$emit('click', playlist)"
+    @click="$emit('click')"
   >
     <div
       class="min-w-0 flex-1 flex items-center gap-2 rounded py-1.5 -m-1"
@@ -71,7 +71,7 @@
           rows="3"
         />
         <div class="mt-4 flex justify-end gap-2">
-          <UButton type="button" color="neutral" variant="ghost" @click="editModalOpen = false">
+          <UButton type="button" color="neutral" variant="ghost" @click="() => { editModalOpen = false }">
             Cancel
           </UButton>
           <UButton type="submit" color="primary" variant="solid">
@@ -91,7 +91,7 @@
           This cannot be undone.
         </p>
         <div class="mt-4 flex justify-end gap-2">
-          <UButton type="button" color="neutral" variant="ghost" @click="deleteModalOpen = false">
+          <UButton type="button" color="neutral" variant="ghost" @click="() => { deleteModalOpen = false }">
             Cancel
           </UButton>
           <UButton
@@ -108,41 +108,41 @@
   </UModal>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, ref } from "vue";
 
 import PlaylistSelectorFilter from "./PlaylistSelectorFilter.vue";
-import { fetchJson } from "../composables/useApi";
-import { useLibraryState } from "../composables/useLibraryState";
+import type { DropdownMenuItem } from "@nuxt/ui";
 import { usePlaylistSelector } from "../composables/usePlaylistSelector";
+import { fetchJson } from "../lib/api/http";
+import { usePlaylistsStore } from "../stores/playlists";
+import type { Playlist, PlaylistEntry } from "../types/api";
 
-const props = defineProps({
-  playlist: {
-    type: Object,
-    required: true,
-  },
-  activePlaylistId: {
-    type: Number,
-    default: null,
-  },
-  isRemotePlaylist: {
-    type: Function,
-    required: true,
-  },
-  thumbnailSrc: {
-    type: String,
-    default: "",
-  },
-  label: {
-    type: String,
-    default: "",
-  },
-});
+const props = withDefaults(
+  defineProps<{
+    playlist: Playlist;
+    activePlaylistId?: string | null;
+    isRemotePlaylist?: (playlist: Playlist) => boolean;
+    thumbnailSrc?: string;
+    label?: string;
+  }>(),
+  { activePlaylistId: null, isRemotePlaylist: () => false, thumbnailSrc: "", label: "" },
+);
 
-const emit = defineEmits(["click", "clear-active-playlist"]);
+const emit = defineEmits<{ click: []; "clear-active-playlist": [] }>();
 
-const { playlists, importPlaylistUrl, queuePlaylist, playPlaylistNow, addEntriesToPlaylist, updatePlaylist, setPlaylistPinned, deletePlaylist } = useLibraryState();
-const { playlistSearchTerm, filteredPlaylists, resetSearch } = usePlaylistSelector(() => playlists.value);
+const playlistsStore = usePlaylistsStore();
+const playlists = computed(() => playlistsStore.playlists);
+const {
+  importPlaylistUrl,
+  queuePlaylist,
+  playPlaylistNow,
+  addEntriesToPlaylist,
+  updatePlaylist,
+  setPlaylistPinned,
+  deletePlaylist,
+} = playlistsStore;
+const { playlistSearchTerm, filteredPlaylists, resetSearch } = usePlaylistSelector(playlists);
 const editModalOpen = ref(false);
 const editTitle = ref("");
 const editDescription = ref("");
@@ -154,7 +154,7 @@ const canAddToPlaylist = computed(() => (
   && Number(props.playlist?.entry_count || 0) > 0
 ));
 
-const dropdownItems = computed(() => {
+const dropdownItems = computed<DropdownMenuItem[][]>(() => {
   if (props.isRemotePlaylist(props.playlist)) {
     return [
       [
@@ -163,13 +163,13 @@ const dropdownItems = computed(() => {
           icon: "i-bi-download",
           class: "cursor-pointer",
           onSelect: () => importPlaylistUrl(props.playlist.source_url),
-        },
+        } satisfies DropdownMenuItem,
       ],
     ];
   }
 
   const pinned = !!props.playlist.pinned;
-  const items = [
+  const items: DropdownMenuItem[][] = [
     [
       {
         label: "Play now",
@@ -213,7 +213,7 @@ const dropdownItems = computed(() => {
 
   const canEdit = props.playlist.can_edit;
   const canDelete = props.playlist.can_delete;
-  const allowedActions = [];
+  const allowedActions: DropdownMenuItem[] = [];
   if (canEdit) {
     allowedActions.push({
       label: "Edit",
@@ -231,23 +231,23 @@ const dropdownItems = computed(() => {
       color: "error",
     });
   }
-  if(allowedActions.length > 0) {
+  if (allowedActions.length > 0) {
     items.push(allowedActions);
   }
   return items;
 });
 
-function openEditModal() {
+function openEditModal(): void {
   editTitle.value = props.playlist?.title || "";
   editDescription.value = props.playlist?.description || "";
   editModalOpen.value = true;
 }
 
-function openDeleteModal() {
+function openDeleteModal(): void {
   deleteModalOpen.value = true;
 }
 
-async function submitEdit() {
+async function submitEdit(): Promise<void> {
   const title = editTitle.value.trim();
   if (!title || !props.playlist?.id) return;
   await updatePlaylist(props.playlist.id, {
@@ -257,7 +257,7 @@ async function submitEdit() {
   editModalOpen.value = false;
 }
 
-async function submitDelete() {
+async function submitDelete(): Promise<void> {
   if (!props.playlist?.id) return;
   const wasSelected = props.playlist.id === props.activePlaylistId;
   deleteModalOpen.value = false;
@@ -267,15 +267,15 @@ async function submitDelete() {
   }
 }
 
-async function addPlaylistToPlaylist(targetPlaylistId) {
+async function addPlaylistToPlaylist(targetPlaylistId: string): Promise<void> {
   if (!props.playlist?.id || !targetPlaylistId || props.playlist.id === targetPlaylistId) return;
-  const entries = await fetchJson(`/api/playlists/${encodeURIComponent(props.playlist.id)}/entries`);
+  const entries = await fetchJson<PlaylistEntry[]>(`/api/playlists/${encodeURIComponent(props.playlist.id)}/entries`);
   if (!Array.isArray(entries) || entries.length === 0) return;
   await addEntriesToPlaylist(targetPlaylistId, entries);
   resetSearch();
 }
 
-function onAddToNewPlaylist(created) {
+function onAddToNewPlaylist(created: Playlist | null): void {
   if (created?.id != null) addPlaylistToPlaylist(created.id);
 }
 </script>

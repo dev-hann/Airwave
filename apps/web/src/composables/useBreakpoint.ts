@@ -4,15 +4,15 @@ const MOBILE_MAX_WIDTH = 767;
 /** Tailwind `xl` — right sidebar is in-flow (not overlay); toggle state is ignored for visibility. */
 const XL_MIN_WIDTH = 1280;
 
-function readIsMobile() {
+function readIsMobile(): boolean {
   if (typeof window === "undefined") return false;
   return window.innerWidth <= MOBILE_MAX_WIDTH;
 }
 
-function readIsTabletLayout() {
+function readIsTabletLayout(): boolean {
   if (typeof window === "undefined") return false;
   const w = window.innerWidth;
-  return w >= (MOBILE_MAX_WIDTH + 1) && w < XL_MIN_WIDTH;
+  return w >= MOBILE_MAX_WIDTH + 1 && w < XL_MIN_WIDTH;
 }
 
 export function useBreakpoint() {
@@ -20,14 +20,14 @@ export function useBreakpoint() {
   /** md–max-xl: floating right sidebar; the queue button toggles it open. */
   const isTabletLayout = ref(readIsTabletLayout());
 
-  function update() {
+  function update(): void {
     if (typeof window === "undefined") return;
     isMobile.value = readIsMobile();
     isTabletLayout.value = readIsTabletLayout();
   }
 
-  let mqlMobile;
-  let mqlTablet;
+  let mqlMobile: MediaQueryList | undefined;
+  let mqlTablet: MediaQueryList | undefined;
   onMounted(() => {
     update();
     mqlMobile = window.matchMedia(`(max-width: ${MOBILE_MAX_WIDTH}px)`);
@@ -36,8 +36,8 @@ export function useBreakpoint() {
     mqlTablet.addEventListener("change", update);
   });
   onUnmounted(() => {
-    if (mqlMobile) mqlMobile.removeEventListener("change", update);
-    if (mqlTablet) mqlTablet.removeEventListener("change", update);
+    mqlMobile?.removeEventListener("change", update);
+    mqlTablet?.removeEventListener("change", update);
   });
 
   return { isMobile, isTabletLayout };

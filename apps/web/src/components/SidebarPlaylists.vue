@@ -31,7 +31,7 @@
               class="cursor-pointer"
               icon="i-lucide-circle-x"
               aria-label="Clear input"
-              @click="playlistSearchTerm = ''"
+              @click="() => { playlistSearchTerm = '' }"
             />
           </template>
         </UInput>
@@ -71,7 +71,7 @@
             :is-remote-playlist="isRemotePlaylist"
             :thumbnail-src="playlistThumbnailSrc(playlist)"
             :label="playlistLabel(playlist)"
-            @click="onPlaylistClick"
+            @click="() => { onPlaylistClick(playlist) }"
             @clear-active-playlist="clearActivePlaylist"
           />
         </VueDraggable>
@@ -85,7 +85,7 @@
             :is-remote-playlist="isRemotePlaylist"
             :thumbnail-src="playlistThumbnailSrc(playlist)"
             :label="playlistLabel(playlist)"
-            @click="onPlaylistClick"
+            @click="() => { onPlaylistClick(playlist) }"
             @clear-active-playlist="clearActivePlaylist"
           />
         </ul>
@@ -112,7 +112,7 @@
             :is-remote-playlist="isRemotePlaylist"
             :thumbnail-src="playlistThumbnailSrc(playlist)"
             :label="playlistLabel(playlist)"
-            @click="onPlaylistClick"
+            @click="() => { onPlaylistClick(playlist) }"
             @clear-active-playlist="clearActivePlaylist"
           />
         </VueDraggable>
@@ -126,7 +126,7 @@
             :is-remote-playlist="isRemotePlaylist"
             :thumbnail-src="playlistThumbnailSrc(playlist)"
             :label="playlistLabel(playlist)"
-            @click="onPlaylistClick"
+            @click="() => { onPlaylistClick(playlist) }"
             @clear-active-playlist="clearActivePlaylist"
           />
         </ul>
@@ -160,48 +160,51 @@
   </aside>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import { useRouter } from "vue-router";
+import { storeToRefs } from "pinia";
 import { VueDraggable } from "vue-draggable-plus";
 import PlaylistItem from "./PlaylistItem.vue";
 
 import { useBreakpoint } from "../composables/useBreakpoint";
-import { useLibraryState } from "../composables/useLibraryState";
-import { useUiState } from "../composables/useUiState";
+import { usePlaylistsStore } from "../stores/playlists";
+import { useUiStore } from "../stores/ui";
+import type { Playlist } from "../types/api";
 
 const SIDEBAR_SORT_MODE_STORAGE_KEY = "airwave:ui:sidebar-playlists:sort-mode";
 const DEFAULT_SORT_MODE = "custom";
 
+type SortMode = "custom" | "recent" | "recently-added" | "alphabetical";
+
 const newTitle = ref("");
 const createModalOpen = ref(false);
-const createTitleInputRef = ref(null);
+const createTitleInputRef = ref<HTMLInputElement | null>(null);
 const router = useRouter();
 const { isMobile } = useBreakpoint();
-const {
-  playlists,
-  createPlaylist,
-  importPlaylistUrl,
-  reorderSidebarPlaylist,
-} = useLibraryState();
-const { activePlaylistId, selectPlaylist } = useUiState();
-const pinnedPlaylists = ref([]);
-const unpinnedPlaylists = ref([]);
+const playlistsStore = usePlaylistsStore();
+const { playlists } = storeToRefs(playlistsStore);
+const { createPlaylist, importPlaylistUrl, reorderSidebarPlaylist } = playlistsStore;
+const uiStore = useUiStore();
+const { activePlaylistId } = storeToRefs(uiStore);
+const selectPlaylist = uiStore.selectPlaylist;
+const pinnedPlaylists = ref<Playlist[]>([]);
+const unpinnedPlaylists = ref<Playlist[]>([]);
 
 const playlistSearchTerm = ref("");
-const sortMode = ref(DEFAULT_SORT_MODE);
+const sortMode = ref<SortMode>(DEFAULT_SORT_MODE);
 
-function loadSortMode() {
+function loadSortMode(): SortMode {
   try {
     const raw = localStorage.getItem(SIDEBAR_SORT_MODE_STORAGE_KEY);
     if (!raw) return DEFAULT_SORT_MODE;
-    return raw;
+    return raw as SortMode;
   } catch {
     return DEFAULT_SORT_MODE;
   }
 }
 
-function saveSortMode(nextMode) {
+function saveSortMode(nextMode: SortMode): void {
   try {
     localStorage.setItem(SIDEBAR_SORT_MODE_STORAGE_KEY, nextMode);
   } catch {
@@ -211,7 +214,7 @@ function saveSortMode(nextMode) {
 
 sortMode.value = loadSortMode();
 
-const SORT_OPTIONS = [
+const SORT_OPTIONS: Array<{ label: string; value: SortMode; icon: string }> = [
   { label: "Custom", value: "custom", icon: "i-bi-list-check" },
   { label: "Recently Played", value: "recent", icon: "i-bi-clock-fill" },
   { label: "Recently Added", value: "recently-added", icon: "i-bi-plus-lg" },
@@ -219,7 +222,7 @@ const SORT_OPTIONS = [
 ];
 
 const sortOrder = computed(() => {
-  return SORT_OPTIONS.find((o) => o.value === sortMode.value) || SORT_OPTIONS[0];
+  return SORT_OPTIONS.find((o) => o.value === sortMode.value) || SORT_OPTIONS[0]!;
 });
 
 watch(
@@ -230,26 +233,26 @@ watch(
   { immediate: false },
 );
 
-function isRemotePlaylist(playlist) {
+function isRemotePlaylist(playlist: Playlist | null | undefined): boolean {
   return playlist?.kind === "remote_youtube";
 }
 
-function stableIndexMap(items) {
-  const map = new Map();
+function stableIndexMap(items: Playlist[]): Map<string | null | undefined, number> {
+  const map = new Map<string | null | undefined, number>();
   items.forEach((item, idx) => {
     map.set(item?.id, idx);
   });
   return map;
 }
 
-function toEpochMillis(isoString) {
+function toEpochMillis(isoString: string | null | undefined): number | null {
   if (!isoString) return null;
   const t = Date.parse(isoString);
   if (Number.isNaN(t)) return null;
   return t;
 }
 
-function sortWithinGroup(items, mode, stableOrder) {
+function sortWithinGroup(items: Playlist[], mode: SortMode, stableOrder: Map<string | null | undefined, number>): Playlist[] {
   if (mode === "custom") return items.slice();
   const next = items.slice();
   next.sort((a, b) => {
@@ -316,7 +319,7 @@ const canDragReorder = computed(() => {
   return sortMode.value === "custom" && !playlistSearchTerm.value.trim() && playlistSearchTerm.value.length === 0;
 });
 
-function onPlaylistClick(playlist) {
+function onPlaylistClick(playlist: Playlist): void {
   if (isRemotePlaylist(playlist)) {
     importPlaylistUrl(playlist.source_url);
     return;
@@ -329,11 +332,11 @@ function onPlaylistClick(playlist) {
   }
 }
 
-function clearActivePlaylist() {
+function clearActivePlaylist(): void {
   selectPlaylist(router, null);
 }
 
-function playlistLabel(playlist) {
+function playlistLabel(playlist: Playlist | null | undefined): string {
   if (playlist?.kind === "remote_youtube") return "youtube";
   return playlist?.kind || "playlist";
 }
@@ -350,38 +353,38 @@ watch(
       pinnedPlaylists.value = [];
     }
   },
-  { immediate: true },
+  { immediate: true, deep: true },
 );
 
-function openCreateModal() {
+function openCreateModal(): void {
   newTitle.value = "";
   createModalOpen.value = true;
   nextTick(() => createTitleInputRef.value?.focus?.());
 }
 
-function closeCreateModal() {
+function closeCreateModal(): void {
   createModalOpen.value = false;
   newTitle.value = "";
 }
 
-function submitCreatePlaylist() {
+function submitCreatePlaylist(): void {
   const title = newTitle.value.trim();
   if (!title) return;
   createPlaylist(title);
   closeCreateModal();
 }
 
-async function onReorderEnd(evt, pinned) {
+async function onReorderEnd(evt: { oldIndex?: number; newIndex?: number }, pinned: boolean): Promise<void> {
   if (!canDragReorder.value) return;
   const { oldIndex, newIndex } = evt;
   if (oldIndex === newIndex) return;
   const list = pinned ? pinnedPlaylists.value : unpinnedPlaylists.value;
-  const playlist = list[newIndex];
+  const playlist = list[newIndex ?? -1];
   if (!playlist?.id) return;
-  await reorderSidebarPlaylist(playlist.id, newIndex, pinned);
+  await reorderSidebarPlaylist(playlist.id, newIndex ?? 0, pinned);
 }
 
-function playlistThumbnailSrc(playlist) {
+function playlistThumbnailSrc(playlist: Playlist | null | undefined): string {
   if (!playlist) return "";
   return playlist.thumbnail_url || "";
 }

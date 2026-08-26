@@ -1,6 +1,6 @@
 # Maintenance & Fork Policy
 
-Read this before yt-dlp/ffmpeg/deno updates, incident response, upstream merges, or releases.
+Read this before yt-dlp/ffmpeg/deno updates, upstream merges, or releases. Incident playbooks live in `docs/runbook.md`.
 
 ## Fork context
 
@@ -8,53 +8,12 @@ Read this before yt-dlp/ffmpeg/deno updates, incident response, upstream merges,
 - Baseline at fork time: tag `v0.1.0-baseline` (upstream `f63265b`, 238 tests passing).
 - **License: upstream has none.** License request pending at upstream discussions #116. Until granted: private use is the safe mode. Public GHCR images (`ghcr.io/dev-hann/airwave`) are published at the owner's explicit choice — if policy changes, make the package private before further pushes.
 
-## yt-dlp breakage playbook (scenario #1)
+## Incident playbooks
 
-YouTube extractor changes are the most likely incident.
+Moved to `docs/runbook.md`:
 
-1. **Symptom**: queue items fail to resolve/start; yt-dlp extraction errors in logs (`AIRWAVE_LOG_LEVEL=debug` helps).
-2. **Diagnose**: run the configured binary directly:
-   ```bash
-   $AIRWAVE_YT_DLP_PATH --version
-   $AIRWAVE_YT_DLP_PATH -f bestaudio "https://youtube.com/watch?v=<id>"
-   ```
-   If the direct run fails with extractor errors → upstream yt-dlp fix needed, not an Airwave bug.
-3. **Update binary** (pick one):
-   - Runtime (non-Docker): settings UI update, or `POST /api/binaries/install` (`{"name":"yt-dlp"}`), or replace the binary at `AIRWAVE_YT_DLP_PATH` with a release from github.com/yt-dlp/yt-dlp.
-   - Docker: rebuild the image (binaries are baked in at build time), then redeploy.
-4. **Verify**: `.venv/bin/python -m pytest` still green; queue a known track end-to-end.
-5. **Rollback**: keep the previous binary/image tag before updating (Docker: previous GHCR tag; bare metal: copy `bin/yt-dlp` aside first).
-
-## Mobile background playback (scenario #2, verified 2026-08)
-
-Symptom: audio stops after a while when the browser goes to background / screen off.
-
-Diagnosed root cause on Android: **OS battery optimization throttles the
-browser's background network fetch**, so the phone falls behind the live edge.
-With the raw-MP3 stream this dropped chunks; since v1.3.0 (HLS) the deep
-client-side buffer rides most of this out and catches up on missed segments.
-
-Fix (per phone): disable battery optimization for the browser
-(e.g. Settings → Apps → Firefox → Battery → Unrestricted). Verified working on
-Firefox Android after this change — background playback survives.
-
-Related notes:
-- Chrome Android shows the media notification; Firefox Android may not show a
-  media-session notification at all — an acknowledged Firefox limitation:
-  Firefox Android uses its own media-control component, unrelated to the
-  desktop MediaControl implementation (see bugzil.la/1648100 comment 9;
-  caniuse lists Firefox for Android as "partial" MediaSession support).
-  Playback itself is unaffected; nothing to fix in the web app.
-- Accessing the server through a VPN tunnel (e.g. Tailscale 100.x addresses)
-  adds another throttling layer in the background — prefer direct LAN URLs at
-  home.
-- Server-side evidence of listeners: `Engine stats ... hls_stream_listeners=N`
-  counts clients that polled the playlist in the last 30s. The raw-MP3
-  `queue full` / zombie-subscriber machinery (`SharedMp3Hub`,
-  `AIRWAVE_STREAM_QUEUE_SIZE`, `AIRWAVE_HUB_STALL_EVICTION_SECONDS`) was
-  removed in v1.3.0 when the stream moved to HLS — segments are fetched over
-  plain HTTP, so slow clients cannot backpressure the engine anymore.
-
+- yt-dlp breakage playbook (diagnose via direct binary run, update paths, rollback)
+- Mobile background playback (battery optimization, VPN throttling notes, `hls_stream_listeners`)
 
 ## Binary management
 
@@ -101,5 +60,9 @@ GHCR keeps every release tag; `WATCHTOWER_CLEANUP` only prunes old images on the
 
 ## CI
 
-- `.github/workflows/ci.yml`: pytest (Python 3.12) → docker build & push to GHCR (on push to any branch/tag).
-- No frontend build job (known gap). If frontend build breaks, CI stays green — run `npm run build` locally before pushing frontend changes.
+- `.github/workflows/ci.yml` (single `python-tests` job, then `docker`/`release`):
+  1. pytest (Python 3.12, JUnit report published to the PR)
+  2. Frontend build check (`npm ci` + `npm run build`)
+  3. Frontend typecheck (`vue-tsc --noEmit`) + unit tests (`vitest run`)
+  4. Contracts drift check — regenerates `packages/shared/src/generated/schema.d.ts` from the OpenAPI dump and fails on diff (run `npm run contracts:gen` locally after response-model changes)
+  5. Docker build & push to GHCR (pushes only), 6. GitHub Release (tag pushes only)

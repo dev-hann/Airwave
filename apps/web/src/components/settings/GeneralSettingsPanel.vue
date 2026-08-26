@@ -11,7 +11,7 @@
         id="theme-select"
         :value="currentTheme"
         class="mt-2 h-10 w-full rounded-md border px-3 text-sm surface-input"
-        @change="onThemeChange($event.target.value)"
+        @change="onThemeChangeEvent"
       >
         <option v-for="t in supportedThemes" :key="t" :value="t">
           {{ t.charAt(0).toUpperCase() + t.slice(1) }}
@@ -21,12 +21,19 @@
   </section>
 </template>
 
-<script setup>
-import { useTheme } from "../../composables/useTheme";
+<script setup lang="ts">
+import { storeToRefs } from "pinia";
 
-const { currentTheme, supportedThemes, setTheme } = useTheme();
+import { useUiStore, supportedThemes, type ThemeName } from "../../stores/ui";
 
-function onThemeChange(value) {
-  setTheme(value);
+const uiStore = useUiStore();
+const { currentTheme } = storeToRefs(uiStore);
+
+function onThemeChangeEvent(event: Event): void {
+  onThemeChange((event.target as HTMLSelectElement).value);
+}
+
+function onThemeChange(value: string): void {
+  uiStore.setTheme(value as ThemeName);
 }
 </script>

@@ -14,13 +14,13 @@ Each theme file is self-contained and defines:
 
 ## State
 
-- Managed by `frontend/src/composables/useTheme.js`, persisted in localStorage under `airwave:settings:theme`.
-- Theme selector UI lives at `frontend/src/pages/settings.vue`.
+- Managed by the ui store (`apps/web/src/stores/ui.ts`), persisted in localStorage under `airwave:settings:theme`.
+- Theme selector UI lives at `apps/web/src/components/settings/GeneralSettingsPanel.vue`.
 
 ## Adding a new theme
 
-1. Create `frontend/src/css/themes/<theme-name>.css`
-2. Import it from `frontend/src/css/style.css`
-3. Add it to `supportedThemes` in `frontend/src/composables/useTheme.js`
+1. Create `apps/web/src/css/themes/<theme-name>.css`
+2. Import it from `apps/web/src/css/style.css`
+3. Add it to `supportedThemes` in `apps/web/src/stores/ui.ts` (and the `ThemeName` type)
 4. Expose it in the `/settings` theme selector
 5. Run `npm run build`

@@ -19,8 +19,22 @@
   </UModal>
 </template>
 
-<script setup>
-import { useDuplicateModal } from "../composables/useDuplicateModal";
+<script setup lang="ts">
+import { computed } from "vue";
+import { storeToRefs } from "pinia";
 
-const { open, targetPlaylistTitle, handleAddAll, handleAddNewOnes } = useDuplicateModal();
+import { usePlaylistsStore } from "../stores/playlists";
+
+const playlistsStore = usePlaylistsStore();
+const { duplicateModal } = storeToRefs(playlistsStore);
+
+const open = computed({
+  get: () => duplicateModal.value.open,
+  set: (value: boolean) => {
+    if (!value) playlistsStore.closeDuplicateModal();
+  },
+});
+const targetPlaylistTitle = computed(() => duplicateModal.value.targetPlaylistTitle);
+const handleAddAll = () => playlistsStore.confirmDuplicateAddAll();
+const handleAddNewOnes = () => playlistsStore.confirmDuplicateAddNewOnes();
 </script>

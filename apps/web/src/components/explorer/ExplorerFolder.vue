@@ -8,7 +8,7 @@
       <p class="truncate text-sm md:max-w-full md:whitespace-normal md:break-all md:overflow-visible md:text-clip md:text-center" :title="entry.path">
         {{ entry.name }}
       </p>
-      <p v-if="props.showPath" class="hidden truncate text-xs text-muted md:block md:max-w-full md:whitespace-normal md:break-all md:overflow-visible md:text-clip md:text-center">
+      <p v-if="showPath" class="hidden truncate text-xs text-muted md:block md:max-w-full md:whitespace-normal md:break-all md:overflow-visible md:text-clip md:text-center">
         {{ entry.path }}
       </p>
     </div>
@@ -24,23 +24,24 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import ExplorerEntryMenu from "./ExplorerEntryMenu.vue";
+import { type LocalMediaEntry } from "../../stores/explorer";
+import type { Playlist } from "../../types/api";
 
-const props = defineProps({
-  entry: {
-    type: Object,
-    required: true,
-  },
-  playlists: {
-    type: Array,
-    default: () => [],
-  },
-  showPath: {
-    type: Boolean,
-    default: false,
-  },
-});
+withDefaults(
+  defineProps<{
+    entry: LocalMediaEntry;
+    playlists?: Playlist[];
+    showPath?: boolean;
+  }>(),
+  { playlists: () => [], showPath: false },
+);
 
-defineEmits(["open", "queue", "play", "add-to-playlist"]);
+defineEmits<{
+  open: [];
+  queue: [];
+  play: [];
+  "add-to-playlist": [playlistId: string];
+}>();
 </script>

@@ -108,9 +108,10 @@
   </UApp>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, onMounted, provide, ref } from "vue";
 import { useRoute } from "vue-router";
+import { storeToRefs } from "pinia";
 
 import DuplicateImportModal from "./components/DuplicateImportModal.vue";
 import HistoryPanel from "./components/HistoryPanel.vue";
@@ -120,31 +121,19 @@ import QueuePanel from "./components/QueuePanel.vue";
 import SidebarPlaylists from "./components/SidebarPlaylists.vue";
 import TopBar from "./components/TopBar.vue";
 import { useBreakpoint } from "./composables/useBreakpoint";
-import { useMediaSession } from "./composables/useMediaSession";
-import { initializeLibraryState } from "./composables/useLibraryState";
 import { useLocalPlayback } from "./composables/useLocalPlayback";
-import { initializeNotifications } from "./composables/useNotifications";
-import { initializePlaybackState } from "./composables/usePlaybackState";
-import {
-  MOBILE_VIEW_HOME,
-  MOBILE_VIEW_PLAYLISTS,
-  MOBILE_VIEW_QUEUE,
-  SIDEBAR_QUEUE_VIEW,
-  useUiState,
-} from "./composables/useUiState";
-import { initializeTheme } from "./composables/useTheme";
+import { useMediaSession } from "./composables/useMediaSession";
+import { initializeLibraryData } from "./lib/api/sync";
+import { useNotificationsStore } from "./stores/notifications";
+import { usePlaybackStore } from "./stores/playback";
+import { MOBILE_VIEW_HOME, MOBILE_VIEW_PLAYLISTS, MOBILE_VIEW_QUEUE, SIDEBAR_QUEUE_VIEW, useUiStore } from "./stores/ui";
 
 const route = useRoute();
 const isFullScreenPlayerRoute = computed(() => route.path === "/fullscreen-player" || route.path === "/fullscreen-player/");
 const { isMobile } = useBreakpoint();
-const localAudio = ref(null);
+const localAudio = ref<HTMLAudioElement | null>(null);
 
-const {
-  localVolume,
-  isMuted,
-  setLocalVolume,
-  toggleMuted,
-} = useLocalPlayback(localAudio);
+const { localVolume, isMuted, setLocalVolume, toggleMuted } = useLocalPlayback(localAudio);
 
 provide("localPlayback", {
   localVolume,
@@ -157,20 +146,15 @@ provide("localPlayback", {
 // server stream. Local listening is only the mute/volume controls in the UI.
 useMediaSession();
 
-const {
-  sidebarView,
-  activeQueueTab,
-  queueSidebarTabs,
-  mobileView,
-  rightSidebarOpen,
-  initializeUiState,
-} = useUiState();
+const uiStore = useUiStore();
+const { sidebarView, activeQueueTab, mobileView, rightSidebarOpen } = storeToRefs(uiStore);
+const queueSidebarTabs = uiStore.queueSidebarTabs;
+const playbackStore = usePlaybackStore();
 
-initializeNotifications(useToast());
+useNotificationsStore().initialize(useToast());
 
 onMounted(async () => {
-  initializeTheme();
-  initializeUiState(route);
-  await Promise.allSettled([initializeLibraryState(), initializePlaybackState()]);
+  uiStore.initialize(route);
+  await Promise.allSettled([initializeLibraryData(), playbackStore.initializePlayback()]);
 });
 </script>

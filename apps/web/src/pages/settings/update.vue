@@ -40,7 +40,7 @@
               :loading="appUpgrading"
               size="sm"
               label="Update now"
-              @click="appUpgradeModalOpen = true"
+              @click="() => { appUpgradeModalOpen = true }"
             />
             <span v-else-if="appUpToDate" class="text-xs text-muted">Up to date</span>
             <span
@@ -66,7 +66,7 @@
                 <UIcon name="i-bi-box-arrow-up-right" class="size-3 shrink-0" aria-hidden="true" />
               </a>
             </div>
-            <div class="mt-1 text-sm text-muted truncate" :title="b.path">{{ b.path }}</div>
+            <div class="mt-1 text-sm text-muted truncate" :title="b.path ?? undefined">{{ b.path }}</div>
             <div class="mt-1 text-xs text-muted">
               Installed: {{ b.version || "—" }}
               <span v-if="updatesById[b.name]">
@@ -119,7 +119,7 @@
             stopped first.
           </p>
           <div class="mt-4 flex justify-end gap-2">
-            <UButton variant="ghost" color="neutral" @click="confirmStopModalOpen = false">
+            <UButton variant="ghost" color="neutral" @click="() => { confirmStopModalOpen = false }">
               Cancel
             </UButton>
             <UButton
@@ -143,7 +143,7 @@
             and this page reloads automatically.
           </p>
           <div class="mt-4 flex justify-end gap-2">
-            <UButton variant="ghost" color="neutral" @click="appUpgradeModalOpen = false">
+            <UButton variant="ghost" color="neutral" @click="() => { appUpgradeModalOpen = false }">
               Cancel
             </UButton>
             <UButton color="primary" :loading="appUpgrading" @click="confirmAppUpgrade">
@@ -156,18 +156,43 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
-import { fetchJson } from "../../composables/useApi";
+import { fetchJson } from "../../lib/api/http";
 
-const binaries = ref([]);
-const updates = ref([]);
+interface BinaryStatus {
+  name: string;
+  version?: string | null;
+  in_use?: boolean;
+  link?: string | null;
+  path?: string | null;
+  is_system?: boolean;
+}
+
+interface BinaryUpdate {
+  name: string;
+  current_version?: string | null;
+  latest_version?: string | null;
+  latest?: string | null;
+  has_update?: boolean;
+}
+
+interface AppUpdates {
+  current?: string | null;
+  has_update?: boolean;
+  latest?: string | null;
+  releases_url?: string | null;
+  can_upgrade?: boolean;
+}
+
+const binaries = ref<BinaryStatus[]>([]);
+const updates = ref<BinaryUpdate[]>([]);
 const loading = ref(true);
 const errorMessage = ref("");
 const installing = ref("");
 const confirmStopModalOpen = ref(false);
 const pendingInstallName = ref("");
-const appUpdates = ref({});
+const appUpdates = ref<AppUpdates>({});
 const appUpgradeModalOpen = ref(false);
 const appUpgrading = ref(false);
 
@@ -176,34 +201,34 @@ const appUpToDate = computed(() => {
   return Boolean(a.current) && a.current !== "dev" && !a.has_update;
 });
 
-const updatesById = computed(() => {
-  const byId = {};
+const updatesById = computed<Record<string, BinaryUpdate>>(() => {
+  const byId: Record<string, BinaryUpdate> = {};
   for (const u of updates.value) {
     byId[u.name] = u;
   }
   return byId;
 });
 
-async function load() {
+async function load(): Promise<void> {
   loading.value = true;
   errorMessage.value = "";
   try {
     const [binRes, updRes, appRes] = await Promise.all([
-      fetchJson("/api/binaries"),
-      fetchJson("/api/binaries/updates"),
-      fetchJson("/api/system/updates").catch(() => ({})),
+      fetchJson<{ binaries?: BinaryStatus[] }>("/api/binaries"),
+      fetchJson<{ updates?: BinaryUpdate[] }>("/api/binaries/updates"),
+      fetchJson<AppUpdates>("/api/system/updates").catch(() => ({})),
     ]);
     binaries.value = binRes.binaries || [];
     updates.value = updRes.updates || [];
     appUpdates.value = appRes;
   } catch (e) {
-    errorMessage.value = e?.message || "Failed to load binary status.";
+    errorMessage.value = (e as { message?: string })?.message || "Failed to load binary status.";
   } finally {
     loading.value = false;
   }
 }
 
-function onUpdateClick(b) {
+function onUpdateClick(b: BinaryStatus): void {
   if (b.in_use && (b.name === "ffmpeg" || b.name === "yt-dlp")) {
     pendingInstallName.value = b.name;
     confirmStopModalOpen.value = true;
@@ -212,14 +237,14 @@ function onUpdateClick(b) {
   }
 }
 
-async function confirmStopAndUpdate() {
+async function confirmStopAndUpdate(): Promise<void> {
   if (!pendingInstallName.value) return;
   await doInstall(pendingInstallName.value, true);
   confirmStopModalOpen.value = false;
   pendingInstallName.value = "";
 }
 
-async function doInstall(name, stopStreamFirst) {
+async function doInstall(name: string, stopStreamFirst: boolean): Promise<void> {
   installing.value = name;
   errorMessage.value = "";
   try {
@@ -228,7 +253,7 @@ async function doInstall(name, stopStreamFirst) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, stop_stream_first: stopStreamFirst }),
     });
-    const data = await response.json().catch(() => ({}));
+    const data = (await response.json().catch(() => ({}))) as { detail?: string; message?: string };
     if (!response.ok) {
       if (response.status === 409 && data.detail === "binary_in_use") {
         pendingInstallName.value = name;
@@ -239,22 +264,22 @@ async function doInstall(name, stopStreamFirst) {
     }
     await load();
   } catch (e) {
-    errorMessage.value = e?.message || `Failed to install ${name}.`;
+    errorMessage.value = (e as { message?: string })?.message || `Failed to install ${name}.`;
   } finally {
     installing.value = "";
   }
 }
 
 const upgradePolling = ref(false);
-let upgradePollTimer = null;
+let upgradePollTimer: ReturnType<typeof setInterval> | null = null;
 
-async function confirmAppUpgrade() {
+async function confirmAppUpgrade(): Promise<void> {
   appUpgrading.value = true;
   errorMessage.value = "";
   try {
     const response = await fetch("/api/system/upgrade", { method: "POST" });
     if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
+      const data = (await response.json().catch(() => ({}))) as { detail?: string };
       throw new Error(data.detail || `Request failed: ${response.status}`);
     }
     appUpgradeModalOpen.value = false;
@@ -267,9 +292,9 @@ async function confirmAppUpgrade() {
       try {
         const res = await fetch("/api/system/version");
         if (!res.ok) return; // server restarting — keep polling
-        const data = await res.json().catch(() => null);
+        const data = (await res.json().catch(() => null)) as { version?: string } | null;
         if (data?.version && data.version !== versionBefore) {
-          clearInterval(upgradePollTimer);
+          clearInterval(upgradePollTimer ?? undefined);
           upgradePollTimer = null;
           upgradePolling.value = false;
           window.location.reload();
@@ -279,14 +304,14 @@ async function confirmAppUpgrade() {
       }
     }, 3000);
   } catch (e) {
-    errorMessage.value = e?.message || "App upgrade failed.";
+    errorMessage.value = (e as { message?: string })?.message || "App upgrade failed.";
   } finally {
     appUpgrading.value = false;
   }
 }
 
 onUnmounted(() => {
-  if (upgradePollTimer) clearInterval(upgradePollTimer);
+  if (upgradePollTimer) clearInterval(upgradePollTimer ?? undefined);
 });
 
 onMounted(load);

@@ -6,13 +6,17 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@airwave/shared": "*",
     "@iconify-json/bi": "^1.2.7",
     "@nuxt/ui": "^4.3.0",
     "hls.js": "^1.7.1",
+    "pinia": "^4.0.3",
     "tailwindcss": "^4.2.1",
     "vue": "^3.5.18",
     "vue-draggable-plus": "^0.6.1",
@@ -20,7 +24,10 @@
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.1.4",
+    "typescript": "^7.0.2",
     "vite": "^6.4.2",
-    "vite-plugin-pages": "^0.33.3"
+    "vite-plugin-pages": "^0.33.3",
+    "vitest": "^4.1.11",
+    "vue-tsc": "^3.3.11"
   }
 }

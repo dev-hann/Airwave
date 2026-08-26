@@ -23,29 +23,33 @@
   </UDropdownMenu>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed } from "vue";
 
 import PlaylistSelectorFilter from "../PlaylistSelectorFilter.vue";
 import { usePlaylistSelector } from "../../composables/usePlaylistSelector";
+import type { DropdownMenuItem } from "@nuxt/ui";
+import { type LocalMediaEntry } from "../../stores/explorer";
+import type { Playlist } from "../../types/api";
 
-const props = defineProps({
-  entry: {
-    type: Object,
-    required: true,
-  },
-  playlists: {
-    type: Array,
-    default: () => [],
-  },
-});
+const props = withDefaults(
+  defineProps<{
+    entry: LocalMediaEntry;
+    playlists?: Playlist[];
+  }>(),
+  { playlists: () => [] },
+);
 
-const emit = defineEmits(["queue", "play", "add-to-playlist"]);
+const emit = defineEmits<{
+  queue: [];
+  play: [];
+  "add-to-playlist": [playlistId: string];
+}>();
 
 const { playlistSearchTerm, filteredPlaylists, resetSearch } = usePlaylistSelector(() => props.playlists);
 
 const dropdownItems = computed(() => {
-  const items = [
+  const items: DropdownMenuItem[] = [
     {
       label: "Queue",
       icon: "i-bi-music-note-list",
@@ -58,7 +62,7 @@ const dropdownItems = computed(() => {
     },
   ];
 
-  const addToPlaylistChildren = [
+  const addToPlaylistChildren: DropdownMenuItem[] = [
     { type: "label", slot: "playlist-filter" },
     ...filteredPlaylists.value.map((p) => ({
       label: p.title,
@@ -74,7 +78,7 @@ const dropdownItems = computed(() => {
   return items;
 });
 
-function onPlaylistCreated(created) {
+function onPlaylistCreated(created: Playlist | null): void {
   if (created?.id != null) emit("add-to-playlist", created.id);
 }
 </script>

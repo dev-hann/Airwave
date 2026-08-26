@@ -1,34 +1,54 @@
 # Frontend Structure
 
-Read this before touching frontend structure, state, or the build.
+Read this before touching frontend structure, state, or the build. For how state flows, see `docs/frontend/architecture.md`; for code rules, `docs/frontend/conventions.md`.
 
 ## Layout
 
-- Source: `apps/web/src/` (~8,700 lines). npm-workspace member `@airwave/web`; vite config sits at `apps/web/vite.config.js`. The repo is an npm-workspaces monorepo (`apps/*`, `packages/*`).
+- Source: `apps/web/src/` (TypeScript, strict). npm-workspace member `@airwave/web`; vite config sits at `apps/web/vite.config.ts`. The repo is an npm-workspaces monorepo (`apps/*`, `packages/*`).
 - Build output goes to `apps/server/app/static/dist/` (entry files forced to `app.js` / `app.css`). FastAPI serves that directory — **the served app is the build output, not `apps/web/src`**.
-- After changing any Vue file, composable, or router behavior: run `npm run build` (from the workspace root) so the dist stays in sync. CI also builds the frontend.
-- Shared code: import constants from `@airwave/shared` (`packages/shared`); wire-payload types come from its OpenAPI-generated `schema.d.ts` — regenerate with `npm run contracts:gen` after backend response-model changes (CI fails on drift).
+- After changing any Vue file, store, composable, or router behavior: run `npm run build` (workspace root). CI also builds + typechecks + runs unit tests.
+- Shared code: `@airwave/shared` (`packages/shared`) — enums + OpenAPI-generated `schema.d.ts` (regenerate with `npm run contracts:gen`; CI fails on drift).
+
+## Tree
+
+```
+apps/web/src/
+  main.ts            # app bootstrap: pinia → router → @nuxt/ui → WS connect → mount
+  router.ts          # createRouter + file-based routes from vite-plugin-pages
+  types/api.ts       # payload types: schema.d.ts aliases + serializer-derived shapes
+  lib/api/
+    http.ts          # typed fetch client (fetchJson/postJson/patchJson/deleteJson/getJson, ApiError)
+    ws.ts            # receive-only WS client (reconnect backoff, onSnapshot registry)
+    sync.ts          # snapshot → stores; initializeLibraryData()
+  stores/            # Pinia setup stores — one per domain (see architecture.md)
+    playback.ts      # playback state + transport + likes + 1s ticker + optimistic rollback
+    queue.ts         # queue list + add/remove/reorder/clear
+    history.ts       # history list + clear
+    playlists.ts     # playlists CRUD + import + duplicate-check modal + reorder
+    explorer.ts      # stateless local-media actions (browse/queue/play)
+    ui.ts            # sidebar/tabs/search/mobile view/theme (localStorage-persisted)
+    notifications.ts # toast plumbing (initialize(useToast()) in App.vue)
+  composables/       # instance-scoped (no global state here)
+    useLocalPlayback.ts  # the single <audio> element: HLS engine, rejoin, volume/mute
+    useMediaSession.ts   # OS media controls → playback store transport
+    useBreakpoint.ts     # isMobile / isTabletLayout
+    usePlaylistSelector.ts # playlist dropdown filtering (pure helper)
+  utils/             # pure functions: duration.ts, debounce.ts, errors.ts
+  components/        # 15 components; primitives live here too (SongProgress, explorer/*)
+  pages/             # 12 file-based pages via vite-plugin-pages
+```
 
 ## State management
 
-No Pinia/Vuex. Plain composables + a hand-rolled event bus:
+Pinia setup stores, one per domain. **Do not add module-level god-state** — new domain state = new store. Instance-scoped concerns (an audio element, a media session) stay in `composables/`. See `docs/frontend/architecture.md` for the store map and data-flow rules.
 
-- `composables/useLibraryState.js` (~810 lines) — central library/queue/playlist state. Biggest state file; be surgical when editing.
-- `composables/useLocalPlayback.js` — browser playback of the shared HLS stream (`/stream/live.m3u8`) via a shared `<audio>` element in `App.vue`: hls.js with a ~30s forward buffer on MSE engines, native HLS on iOS Safari (volume persisted in localStorage).
-- `composables/websocketBus.js` — WS snapshot updates from the backend.
-- `composables/eventBus.js` — tiny global emitter for cross-component events.
-
-`App.vue` is the coordinator for queue, history, playlists, and playback state. Avoid duplicating global state in multiple components — share via composables/events instead.
-
-## Components & pages
-
-- 17 components in `components/`. Largest: `SpeakerPanel.vue` (~980), `TopBar.vue` (~470), `SidebarPlaylists.vue` (~390), `PlayerBar.vue` (~310).
-- 13 file-based pages via `vite-plugin-pages` (`pages/`): `index`, `explorer`, `playlist/[id]` (~530), `fullscreen-player`, `search`, `spotify-import/[id]`, `settings`, `cookies`, `update`, … Router is `router.js` (7 lines) — routes come from the file tree.
+`App.vue` is the composition root: owns the `<audio>` element (`useLocalPlayback`), registers media-session handlers, wires ui-store route watchers, and kicks off `initializeLibraryData()` + `initializePlayback()` on mount.
 
 ## API access
 
-All requests go through `fetchJson` in `composables/useApi.js` (unless there's a strong reason not to). Verify backend payload shapes against actual API responses — don't assume fields.
+All requests go through `lib/api/http.ts` (`fetchJson<T>` / `postJson<T>` / …) — never raw `fetch` outside it (settings/update.vue's binary-install + upgrade endpoints are the historical exception; don't copy them). Payload types come from `types/api.ts`; verify shapes against the generated contract or backend serializers, don't invent fields.
 
 ## Known gaps
 
-- Zero frontend tests, zero lint config. Don't pretend otherwise in docs; if you add vitest/eslint, record it here and in AGENTS.md.
+- No component/DOM tests (unit tests cover stores/lib/utils only — see `docs/frontend/testing.md`).
+- No ESLint/prettier config; match surrounding style manually.

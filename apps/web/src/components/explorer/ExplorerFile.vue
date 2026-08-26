@@ -21,23 +21,23 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import ExplorerEntryMenu from "./ExplorerEntryMenu.vue";
+import { useExplorerStore, type LocalMediaEntry } from "../../stores/explorer";
+import type { Playlist } from "../../types/api";
 
-defineProps({
-  entry: {
-    type: Object,
-    required: true,
-  },
-  playlists: {
-    type: Array,
-    default: () => [],
-  },
-  showPath: {
-    type: Boolean,
-    default: false,
-  },
-});
+withDefaults(
+  defineProps<{
+    entry: LocalMediaEntry;
+    playlists?: Playlist[];
+    showPath?: boolean;
+  }>(),
+  { playlists: () => [], showPath: false },
+);
 
-defineEmits(["queue", "play", "add-to-playlist"]);
+defineEmits<{
+  queue: [];
+  play: [];
+  "add-to-playlist": [playlistId: string];
+}>();
 </script>

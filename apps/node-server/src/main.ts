@@ -13,7 +13,13 @@ import { YtDlpService } from "./yt-dlp-service.ts";
 const here = dirname(fileURLToPath(import.meta.url));
 const env = process.env;
 
-const dbPath = env.AIRWAVE_DB_URL?.replace(/^sqlite\+pysqlite:\/\/\//, "").replace(/^\/\//, "") ?? "./data/airwave.db";
+const dbPath = (() => {
+  const raw = env.AIRWAVE_DB_URL ?? "./data/airwave.db";
+  // Accept python-style URLs (sqlite:///path) and plain paths; better-sqlite3
+  // needs a filesystem path, never a scheme.
+  const stripped = raw.replace(/^sqlite(\+pysqlite)?:\/\//, "").replace(/^sqlite:/, "");
+  return stripped.startsWith("/") ? stripped : `./${stripped.replace(/^\.\//, "")}`;
+})();
 mkdirSync(dirname(dbPath) || ".", { recursive: true });
 
 const ytDlp = new YtDlpService(env.AIRWAVE_YT_DLP_PATH ?? "yt-dlp");

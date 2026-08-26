@@ -3,8 +3,8 @@
  * Pure function of (state, now) — callers inject the clock.
  */
 
-import type { PlaybackModeValue, PlaybackState } from "./playback-state.js";
-import { PLAYBACK_MODE_PLAYING } from "./playback-state.js";
+import type { PlaybackModeValue, PlaybackState } from "./playback-state.ts";
+import { PLAYBACK_MODE_PLAYING } from "./playback-state.ts";
 
 export interface PlaybackProgress {
   durationSeconds: number | null;

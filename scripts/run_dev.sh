@@ -9,7 +9,7 @@ if [[ -f ".venv/bin/activate" ]]; then
   source ".venv/bin/activate"
 fi
 
-if [[ ! -f "apps/server/app/static/dist/app.js" ]]; then
+if [[ ! -f "apps/node-server/static-dist/app.js" ]]; then
   if command -v npm >/dev/null 2>&1; then
     echo "Building frontend assets..."
     if ! npm run build; then

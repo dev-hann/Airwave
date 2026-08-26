@@ -14,5 +14,10 @@
     "@airwave/usecases": "*",
     "express": "^5.1.0",
     "ws": "^8.18.0"
+  },
+  "scripts": {
+    "dev": "node --experimental-strip-types --watch src/main.ts",
+    "start": "node --experimental-strip-types src/main.ts",
+    "test": "vitest run"
   }
 }

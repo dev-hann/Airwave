@@ -4,7 +4,7 @@
  * these interfaces implicitly.
  */
 
-import type { RepeatModeValue } from "./playback-state.js";
+import type { RepeatModeValue } from "./playback-state.ts";
 
 export interface ResolvedTrackLike {
   sourceUrl: string;

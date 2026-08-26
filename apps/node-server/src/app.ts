@@ -12,13 +12,13 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { join, resolve as resolvePath } from "node:path";
 
-import { Repository, LIKED_SONGS_SOURCE_URL } from "@airwave/db";
+import { LIKED_SONGS_SOURCE_URL, Repository } from "@airwave/db";
 
-import { FfmpegPipeline } from "./ffmpeg-pipeline.js";
-import { HlsSegmenter } from "./hls-segmenter.js";
-import { StreamEngine } from "./stream-engine.js";
-import { UiEventBroker } from "./ui-events.js";
-import { buildUiSnapshot, serializePlaylist, serializePlaylistEntry, serializeState, serializeQueueItem } from "./serializers.js";
+import { FfmpegPipeline } from "./ffmpeg-pipeline.ts";
+import { HlsSegmenter } from "./hls-segmenter.ts";
+import { StreamEngine } from "./stream-engine.ts";
+import { UiEventBroker } from "./ui-events.ts";
+import { buildUiSnapshot, serializePlaylist, serializePlaylistEntry, serializeState, serializeQueueItem } from "./serializers.ts";
 
 export interface AppOptions {
   dbPath: string;
@@ -377,7 +377,7 @@ export function createApp(options: AppOptions) {
 
   // ------------------------------------------------------------- frontend
 
-  const staticDir = options.staticDir ?? resolvePath("app/static/dist");
+  const staticDir = options.staticDir ?? resolvePath("static-dist");
   app.use("/static", express.static(staticDir, { etag: true, maxAge: 0 }));
   app.get("/", async (_req: Request, res: Response) => {
     try {

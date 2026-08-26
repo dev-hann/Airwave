@@ -1,47 +1,33 @@
-# Multi-stage build for production-ready image
-# APP_VERSION: injected by CI (git tag name or dev-<sha>); exposed to the app via env.
+# Multi-stage build for production-ready image (Node.js server)
+# APP_VERSION: injected by CI (git tag name or dev-<sha>); exposed via env.
 ARG APP_VERSION=dev
-FROM python:3.12-slim AS builder
+FROM node:22-slim AS builder
 ARG APP_VERSION
 
-# Install build dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    ca-certificates \
-    xz-utils \
-    unzip \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Node.js for frontend build
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /build
 
-# Copy dependency files (workspace root + member manifests for npm ci)
-COPY apps/server/pyproject.toml ./apps/server/
+# Copy workspace manifests for dependency install
 COPY package.json package-lock.json* ./
 COPY apps/web/package.json ./apps/web/
+COPY apps/node-server/package.json ./apps/node-server/
+COPY packages/domain/package.json ./packages/domain/
+COPY packages/usecases/package.json ./packages/usecases/
+COPY packages/db/package.json ./packages/db/
 COPY packages/shared/package.json ./packages/shared/
 
-# Install Python dependencies (server)
-WORKDIR /build/apps/server
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
-    && pip install --no-cache-dir ".[dev]"
-
-# Install frontend dependencies (workspace root)
-WORKDIR /build
 RUN npm ci
 
 # Copy application source
 COPY . .
 
-# Build frontend (workspace script targets apps/web; output goes to apps/server/app/static/dist)
+# Build frontend (workspace script targets apps/web; output goes to apps/node-server/static-dist)
 RUN npm run build
 
-# Download and install yt-dlp
-RUN mkdir -p /build/bin \
+# Runtime binaries (yt-dlp / deno / ffmpeg / ffprobe) — downloaded into /build/bin
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates xz-utils unzip \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /build/bin \
     && ARCH=$(uname -m) \
     && case "$ARCH" in \
         x86_64|amd64) ASSET="yt-dlp_linux" ;; \
@@ -51,7 +37,6 @@ RUN mkdir -p /build/bin \
     && curl -fsSL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/${ASSET}" -o /build/bin/yt-dlp \
     && chmod +x /build/bin/yt-dlp
 
-# Download and install Deno (JS runtime for yt-dlp EJS)
 RUN ARCH=$(uname -m) \
     && case "$ARCH" in \
         x86_64|amd64) DENO_ASSET="deno-x86_64-unknown-linux-gnu.zip" ;; \
@@ -64,7 +49,6 @@ RUN ARCH=$(uname -m) \
     && chmod +x /build/bin/deno \
     && rm -rf /tmp/deno.zip /tmp/deno-extract
 
-# Download and install ffmpeg (yt-dlp FFmpeg-Builds tarball)
 RUN ARCH=$(uname -m) \
     && case "$ARCH" in \
         x86_64|amd64) ASSET_URL="https://github.com/yt-dlp/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-linux64-gpl.tar.xz" ;; \
@@ -79,7 +63,6 @@ RUN ARCH=$(uname -m) \
     && chmod +x /build/bin/ffmpeg \
     && rm -rf "$TMP_DIR"
 
-# ffprobe from Martin Riedl FFmpeg build server (https://ffmpeg.martin-riedl.de/ — redirect "Scripting URLs", release build)
 RUN ARCH=$(uname -m) \
     && case "$ARCH" in \
         x86_64|amd64) MR_ARCH=amd64 ;; \
@@ -97,59 +80,47 @@ RUN ARCH=$(uname -m) \
     && rm -rf "$TMP_DIR"
 
 # Production stage
-FROM python:3.12-slim
+FROM node:22-slim
 ARG APP_VERSION
 
-# Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    ca-certificates \
-    sqlite3 \
-    && rm -rf /var/lib/apt/lists/*
-
-# Create non-root user
-RUN useradd -m -u 1000 airwave && \
-    mkdir -p /app /app/bin /app/data && \
+    curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd -m -u 1000 airwave && \
+    mkdir -p /app/bin /app/data && \
     chown -R airwave:airwave /app
 
 WORKDIR /app
 
-# Copy dependency file and app source (needed for package installation)
-COPY --chown=airwave:airwave apps/server/pyproject.toml ./pyproject.toml
-COPY --chown=airwave:airwave apps/server/app/ ./app/
+# Workspace + app sources (node_modules from builder for runtime deps)
+COPY --chown=airwave:airwave --from=builder /build/package.json ./package.json
+COPY --chown=airwave:airwave --from=builder /build/node_modules ./node_modules
+COPY --chown=airwave:airwave --from=builder /build/packages ./packages
+COPY --chown=airwave:airwave --from=builder /build/apps/node-server ./apps/node-server
 
-# Install Python packages (production only, no dev deps)
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
-    && pip install --no-cache-dir .
+# Frontend bundle served by the Node server
+COPY --chown=airwave:airwave --from=builder /build/apps/node-server/static-dist ./apps/node-server/static-dist
 
-# Copy built frontend assets from builder (overwrites app/static/dist)
-COPY --chown=airwave:airwave --from=builder /build/apps/server/app/static/dist ./app/static/dist
-
-# Copy binaries from builder
+# Runtime binaries
 COPY --chown=airwave:airwave --from=builder /build/bin/yt-dlp ./bin/yt-dlp
 COPY --chown=airwave:airwave --from=builder /build/bin/deno ./bin/deno
 COPY --chown=airwave:airwave --from=builder /build/bin/ffmpeg ./bin/ffmpeg
 COPY --chown=airwave:airwave --from=builder /build/bin/ffprobe ./bin/ffprobe
 
-# Set environment variables
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
+ENV NODE_ENV=production \
     AIRWAVE_APP_VERSION=${APP_VERSION} \
     AIRWAVE_YT_DLP_PATH=/app/bin/yt-dlp \
     AIRWAVE_FFMPEG_PATH=/app/bin/ffmpeg \
     AIRWAVE_FFPROBE_PATH=/app/bin/ffprobe \
     AIRWAVE_DENO_PATH=/app/bin/deno \
+    AIRWAVE_DB_URL="sqlite:///./data/airwave.db" \
+    AIRWAVE_STATIC_DIR=/app/apps/node-server/static-dist \
     PATH="/app/bin:${PATH}"
 
-# Switch to non-root user
 USER airwave
-
-# Expose port
 EXPOSE 8000
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/ || exit 1
+    CMD curl -f http://localhost:8000/api/health || exit 1
 
-# Run the application
-CMD ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["node", "--experimental-strip-types", "apps/node-server/src/main.ts"]

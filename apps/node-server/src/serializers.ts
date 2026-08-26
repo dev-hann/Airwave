@@ -5,10 +5,11 @@
  */
 
 import type { PlayHistoryRow, PlaylistEntryRow, PlaylistRow, QueueItemRow } from "@airwave/db";
-import { playbackProgress, PlaybackState } from "@airwave/domain";
+import { playbackProgress } from "@airwave/domain";
+import type { PlaybackState } from "@airwave/domain";
 import type { HistoryRowPayload, PlaybackStatePayload, PlaylistEntryPayload, PlaylistPayload, QueueItemPayload } from "@airwave/shared/contracts";
 
-import { StreamEngine } from "./stream-engine.js";
+import { StreamEngine } from "./stream-engine.ts";
 
 /** Best-effort thumbnail: stored URL > YouTube provider id > parsed source URL. */
 export function resolvedThumbnail(item: {

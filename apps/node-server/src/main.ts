@@ -7,8 +7,8 @@ import { mkdirSync } from "node:fs";
 import { dirname, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { createApp } from "./app.js";
-import { YtDlpService } from "./yt-dlp-service.js";
+import { createApp } from "./app.ts";
+import { YtDlpService } from "./yt-dlp-service.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const env = process.env;
@@ -23,7 +23,7 @@ const app = createApp({
   ffmpegPath: env.AIRWAVE_FFMPEG_PATH ?? "ffmpeg",
   ffprobePath: env.AIRWAVE_FFPROBE_PATH ?? "ffprobe",
   hlsDirectory: env.AIRWAVE_HLS_DIR,
-  staticDir: env.AIRWAVE_STATIC_DIR ?? resolvePath(here, "../server/app/static/dist"),
+  staticDir: env.AIRWAVE_STATIC_DIR ?? resolvePath(here, "../static-dist"),
   trackSource: ytDlp,
 });
 

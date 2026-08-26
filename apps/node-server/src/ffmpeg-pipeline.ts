@@ -63,11 +63,15 @@ const wrap = (process: import("node:child_process").ChildProcess): SpawnedProces
 };
 
 export class FfmpegPipeline {
-  constructor(
-    private readonly ffmpegPath: string,
-    private readonly ffprobePath: string = "ffprobe",
-    private readonly bitrate = "320k",
-  ) {}
+  private readonly ffmpegPath: string;
+  private readonly ffprobePath: string;
+  private readonly bitrate: string;
+
+  constructor(ffmpegPath: string, ffprobePath = "ffprobe", bitrate = "320k") {
+    this.ffmpegPath = ffmpegPath;
+    this.ffprobePath = ffprobePath;
+    this.bitrate = bitrate;
+  }
 
   /** Per-track decoder: source → continuous MP3 on stdout (tag-free for the packager). */
   spawnForSource(sourceUrl: string, startAtSeconds = 0): SpawnedProcess {

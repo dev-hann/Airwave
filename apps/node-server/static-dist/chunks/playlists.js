@@ -1,0 +1,1 @@
+import{c as e,b as s,o as a,H as r}from"../app.js";const t={class:"playlists-page min-h-0 h-full rounded-xl border border-neutral-700 p-4 surface-panel"},_={__name:"playlists",setup(o){return(c,l)=>(a(),e("section",t,[s(r)]))}};export{_ as default};

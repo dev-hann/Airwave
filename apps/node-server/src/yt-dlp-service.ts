@@ -30,7 +30,13 @@ interface RawEntry {
 }
 
 export class YtDlpService {
-  constructor(private readonly ytDlpPath: string, private readonly timeoutMs = 60_000) {}
+  private readonly ytDlpPath: string;
+  private readonly timeoutMs: number;
+
+  constructor(ytDlpPath: string, timeoutMs = 60_000) {
+    this.ytDlpPath = ytDlpPath;
+    this.timeoutMs = timeoutMs;
+  }
 
   async resolveVideo(url: string, forceRefresh = false): Promise<ResolvedTrackLike> {
     const args = [

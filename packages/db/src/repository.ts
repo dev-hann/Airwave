@@ -15,10 +15,11 @@ import { and, asc, count, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm
 import Database from "better-sqlite3";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 
-import { newQueueItemFields, RepeatCycleItem, TrackIdentity } from "@airwave/domain";
+import { newQueueItemFields } from "@airwave/domain";
+import type { RepeatCycleItem, TrackIdentity } from "@airwave/domain";
 
-import * as schema from "./schema.js";
-import { playHistory, playlistEntries, playlists, queueItems, settings } from "./schema.js";
+import * as schema from "./schema.ts";
+import { playHistory, playlistEntries, playlists, queueItems, settings } from "./schema.ts";
 
 export const LIKED_SONGS_SOURCE_URL = "custom://liked_songs";
 

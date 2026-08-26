@@ -5,7 +5,7 @@
 
 import type { WebSocket } from "ws";
 
-import type { UiSnapshot } from "./serializers.js";
+import type { UiSnapshot } from "./serializers.ts";
 
 export class UiEventBroker {
   private readonly clients = new Set<WebSocket>();

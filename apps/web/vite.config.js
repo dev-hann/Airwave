@@ -7,7 +7,7 @@ import { resolve } from "path";
 // Icons: bundled via addCollection() in src/main.js using @iconify-json/*.
 // See: https://github.com/nuxt/icon?tab=readme-ov-file#iconify-dataset
 
-const serverDist = resolve(__dirname, "../server/app/static/dist");
+const serverDist = resolve(__dirname, "../node-server/static-dist");
 
 export default defineConfig({
   root: __dirname,

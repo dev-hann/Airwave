@@ -8,16 +8,14 @@
  */
 
 import {
-  AttemptOutcome,
   ATTEMPT_COMPLETED,
   ATTEMPT_RETRY_FFMPEG,
   ATTEMPT_RETRY_SOURCE,
   classifyAttempt,
   expectedDurationSeconds,
-  ResolvedTrackLike,
   slowChunkRead,
-  Transcoder,
 } from "@airwave/domain";
+import type { AttemptOutcome, ResolvedTrackLike, Transcoder } from "@airwave/domain";
 
 export interface QueueItemLike {
   id: number;
@@ -276,9 +274,12 @@ export class TrackAttemptRunner {
 
 /** Mirrors Python's InterruptedError control-flow contract. */
 export class InterruptedError extends Error {
-  constructor(public readonly reason: string) {
+  readonly reason: string;
+
+  constructor(reason: string) {
     super(reason);
     this.name = "InterruptedError";
+    this.reason = reason;
   }
 }
 

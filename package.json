@@ -11,8 +11,8 @@
     "dev": "npm run dev -w apps/web",
     "build": "npm run build -w apps/web",
     "preview": "npm run preview -w apps/web",
-    "contracts:export": "python scripts/export_openapi.py",
-    "contracts:gen": "npm run contracts:export && npx openapi-typescript openapi.json -o packages/shared/src/generated/schema.d.ts"
+    "server:dev": "npm run dev -w @airwave/node-server",
+    "test": "npm test --workspaces --if-present"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",

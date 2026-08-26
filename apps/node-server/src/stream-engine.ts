@@ -456,6 +456,15 @@ export class StreamEngine {
     let target = Math.max(0, seconds);
     if (duration && duration > 0) target = Math.min(target, duration);
     this.pendingSeekSeconds = target;
+    if (this.state.paused) {
+      // Paused: the paused cycle sits in readChunk on the silence process;
+      // a purging interrupt would KILL that process and wedge the cycle's
+      // data-wait forever (no wake event). Just park the target — the seek
+      // commits when playback resumes (togglePause preserves pendingSeek).
+      this.interruptRequested = null;
+      this.notifyStateChanged();
+      return true;
+    }
     this.requestInterrupt("seek");
     return true;
   }

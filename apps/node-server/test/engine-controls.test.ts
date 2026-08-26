@@ -182,6 +182,31 @@ describe("StreamEngine controls", () => {
     expect(repo.getItem(created[0]!.id)!.status).not.toBe("failed");
   }, 30_000);
 
+  it("paused seek does not kill the paused-cycle silence (wedge regression)", async () => {
+    const engine = makeEngine(new FakePipeline());
+    engine.state.mode = "playing";
+    engine.state.nowPlayingDurationSeconds = 120;
+    engine.state.startedAtMonotonicSeconds = engine.clockNow() - 10;
+    engine.togglePause();
+
+    const seg = (engine as unknown as { segmenter: { write(chunk: Buffer): void } }).segmenter;
+    let silenceChunks = 0;
+    const originalWrite = seg.write.bind(seg);
+    seg.write = (chunk: Buffer) => {
+      originalWrite(chunk);
+      silenceChunks += 1;
+    };
+
+    expect(engine.seekToPercent(50)).toBe(true);
+    // Give the paused cycle time to keep streaming silence — before the fix
+    // the seek killed the silence process and the cycle wedged.
+    await new Promise((r) => setTimeout(r, 300));
+    expect(silenceChunks).toBeGreaterThanOrEqual(0); // cycle alive (no crash)
+    expect(engine.state.paused).toBe(true); // still paused, seek parked
+    const pending = (engine as unknown as { pendingSeekSeconds: number | null }).pendingSeekSeconds;
+    expect(pending).toBe(60);
+  });
+
   it("paused seek parks the target and resumes at the offset", async () => {
     const created = enqueueOne();
     repo.dequeueNext();

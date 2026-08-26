@@ -13,5 +13,10 @@
     "preview": "npm run preview -w apps/web",
     "contracts:export": "python scripts/export_openapi.py",
     "contracts:gen": "npm run contracts:export && npx openapi-typescript openapi.json -o packages/shared/src/generated/schema.d.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.3.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
   }
 }

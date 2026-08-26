@@ -20,3 +20,6 @@ app/static/dist/
 .cursor/
 # OpenAPI export + generated TS (CI regenerates and diff-checks)
 openapi.json
+
+# Node migration artifacts
+*.tsbuildinfo

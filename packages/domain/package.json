@@ -1,0 +1,18 @@
+{
+  "name": "@airwave/domain",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./playback-state": "./src/playback-state.ts",
+    "./outcomes": "./src/outcomes.ts",
+    "./progress": "./src/progress.ts",
+    "./repeat-cycle": "./src/repeat-cycle.ts",
+    "./seek": "./src/seek.ts",
+    "./shuffle-order": "./src/shuffle-order.ts",
+    "./ports": "./src/ports.ts"
+  }
+}

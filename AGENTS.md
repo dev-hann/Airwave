@@ -4,86 +4,61 @@ Core working guide for code agents in this repo. This file is the **index** — 
 
 ## Purpose
 
-**Airwave**: FastAPI backend + Vue/Vite frontend exposing **one shared live MP3 stream** for all clients. Users add YouTube URLs or playlists to a shared queue (Spotify playlists are importable via YouTube matching; SoundCloud/Mixcloud support was removed in this fork); browsers play the live HLS stream (`/stream/live.m3u8`) directly via an `<audio>` element (hls.js or native HLS). (Sonos support was also removed in this fork; WLED/LedFX integration is external, not built in.)
-
-Historical note: upstream had a SendSpin synchronized-playback subsystem (server + browser client); this fork removed it entirely — browsers play the shared HLS stream directly. Do not reintroduce per-client audio paths.
-
-This is a maintained fork (`dev-hann/Airwave`); upstream is inactive. See `docs/maintenance.md` for fork/license policy.
+**Airwave**: Node.js backend + Vue/Vite frontend exposing **one shared live HLS stream** for all clients. Users add YouTube URLs or playlists to a shared queue; browsers play the live stream (`/stream/live.m3u8`) via hls.js (native HLS on iOS Safari). v2.0.0 migrated the backend from Python/FastAPI to Node/Express — the wire format is unchanged.
 
 ## Stack
 
-- Backend: Python 3.12+, FastAPI, SQLAlchemy 2, pydantic-settings
-- Frontend: Vue 3 (`<script setup>`), file-based routing (vite-plugin-pages), `@nuxt/ui`, Vite
-- Runtime tools: `yt-dlp`, `ffmpeg`/`ffprobe`, `deno` (managed by BinariesService)
-- Storage: SQLite via `AIRWAVE_DB_URL`
+- Backend: Node.js 22 (TypeScript, `--experimental-strip-types`), Express 5, `ws`, zod
+- Data: SQLite via drizzle-orm + better-sqlite3 (clean-start schema; manual DDL in `Repository.init()`)
+- Frontend: Vue 3 (`<script setup>`), vite-plugin-pages, `@nuxt/ui`, Vite
+- Runtime tools: `yt-dlp`, `ffmpeg`/`ffprobe`, `deno` (downloaded in Docker build)
+- Monorepo: npm workspaces — `apps/node-server`, `apps/web`, `packages/{domain,usecases,db,shared}`
 
-## Doc routing — MUST read before these tasks
+## Repository map
 
-| Task | Read first |
-|---|---|
-| Structural backend change (StreamEngine, Repository, domain/usecases, API/DB structure) | `docs/backend/architecture.md` + `docs/backend/clean-architecture.md` |
-| Writing/modifying backend code | `docs/backend/conventions.md` |
-| Frontend structure/state/build changes | `docs/frontend/structure.md` |
-| Writing/modifying Vue components | `docs/frontend/conventions.md` |
-| Adding or changing themes | `docs/frontend/themes.md` |
-| yt-dlp/ffmpeg/deno updates, incidents, upstream, releases | `docs/maintenance.md` |
-
-**Doc-sync rule**: if a code change conflicts with any doc above, update that doc in the same commit.
-
-## Repository map (condensed)
-
-- `app/main.py` — composition root: service wiring, lifespan
-- `apps/server/app/api/` — 19 domain sub-routers mounted by `app/api/routes.py` (45-line aggregator); shared models/serializers in `app/api/common/`
-- `apps/server/app/domain/`, `apps/server/app/usecases/` — pure playback rules + play-track orchestration (see `docs/backend/clean-architecture.md`; lint-enforced isolation)
-- `apps/server/app/services/` — business logic (StreamEngine session/retry, HlsSegmenter, PlaylistService, YtDlpService, FfmpegPipeline, BinariesService, …)
-- `apps/server/app/db/` — SQLAlchemy models + `repository/` package (facade + store mixins; manual migrations)
-- `apps/server/app/core/config.py` — `AIRWAVE_*` settings
-- `apps/web/` — Vue app (`@airwave/web`); builds to `apps/server/app/static/dist` (served by FastAPI). `packages/shared/` (`@airwave/shared`) holds enums + OpenAPI-generated TS contract types (`npm run contracts:gen` to refresh; CI fails on drift)
-- `tests/` — pytest, 270 tests (incl. architecture/port enforcement). `tests_e2e/` does **not** exist.
+- `apps/node-server/src/` — Express app, composition root (main.ts), StreamEngine, FfmpegPipeline, HlsSegmenter, yt-dlp adapter, serializers, WS broker
+- `packages/domain/` — pure playback rules (no I/O, no clock) shared by server AND web
+- `packages/usecases/` — play-track orchestration (AttemptHooks contract)
+- `packages/db/` — Drizzle schema + Repository facade
+- `packages/shared/` — zod wire contracts + enums (single source for both sides)
+- `apps/web/` — Vue app (`@airwave/web`); builds to `apps/node-server/static-dist`
+- `docs/` — routed documentation (see table)
 
 ## Hard rules
 
-1. Preserve the shared-stream model: `/stream/live.m3u8` stays ONE HLS stream for all listeners. No per-client transcoding.
-2. Layering: `db ← services ← api ← main`, plus `domain ← usecases ← services(engine)` for the playback pipeline (see `docs/backend/clean-architecture.md`; lint-enforced). No reverse imports, no business logic in route handlers, DB access only via `Repository`.
-3. Subprocesses use list-argv only. Never `shell=True`, never interpolate URLs/paths into command strings.
-4. Shared services come from `request.app.state` (via `_services(request)`). No ad-hoc globals.
-5. Keep API payload shapes stable; contract changes update backend + frontend in one commit.
-6. Env-driven behavior goes through `app/core/config.py` (`AIRWAVE_*`), not hardcoded values.
-7. New DB columns follow the existing `_ensure_*_column` migration pattern in `apps/server/app/db/repository/migrations.py` (no Alembic, no third migration path).
-8. Vue changes require `npm run build` before finishing (CI builds the frontend and diff-checks generated contract types).
-9. Client disconnects/shutdown in streaming code are normal cases — handle gracefully, don't log-spam.
+1. `/stream/live.m3u8` stays ONE HLS stream for all listeners. No per-client transcoding.
+2. Subprocesses use list-argv `spawn` only — never `shell`, never string interpolation.
+3. Shared services come from the app instance (composition root). No ad-hoc globals.
+4. Wire payloads are defined by `packages/shared/src/contracts.ts` (zod) — server and web import the SAME module; breaking changes ship in one commit with web consumers.
+5. Env-driven behavior via `AIRWAVE_*` env vars (see main.ts), not hardcoded values.
+6. New DB columns: extend the Drizzle schema in `packages/db/src/schema.ts` + DDL in `Repository.init()`. No ORM-generated migration tooling beyond that.
+7. Vue changes require `npm run build` before finishing (CI builds the frontend).
+8. Client disconnects in streaming code are normal — handle gracefully, don't log-spam.
+9. Domain layer stays pure: no I/O, wall clock, or framework imports in `packages/domain`.
 10. Match existing style in touched files; no unrelated refactors.
 
 ## Known constraints (do not silently "fix")
 
-- **No authentication** — trust model is private LAN. Auth middleware is planned; don't expose to the internet meanwhile.
-- `POST /api/binaries/install` is unauthenticated and replaces executables the server runs (known critical gap).
-- Single process, in-process StreamEngine: no horizontal scaling; restart always breaks the live stream.
-- Largest files needing care: `services/stream_engine.py` (~900, playback session), `services/playlist_service.py` (~690).
+- **No authentication** — trust model is private LAN.
+- Single process, in-process engine: no horizontal scaling; restart breaks the live stream.
 - Direct-URL ingestion has an SSRF surface (no internal-IP blocklist yet).
 - Frontend has zero tests and zero lint config.
+- `--experimental-strip-types`: no TS parameter properties; type-only re-exports need `import type`.
 
 ## Setup & validation
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-cd apps/server && python -m pip install -e ".[dev]"   # MUST be editable; non-editable breaks static tests
-cd ../.. && npm install               # workspace root installs apps/web + packages/shared
-./scripts/setup_binaries.sh           # optional: local bare-metal dev only (Docker bakes binaries in)
-./scripts/run_dev.sh                  # dev launcher (builds frontend if missing)
-python scripts/export_openapi.py      # OpenAPI dump for TS codegen
+npm install                          # workspace root
+npm test --workspaces --if-present   # vitest across packages (123 tests)
+npm run build                        # frontend build check
+# per-package typecheck:
+for pkg in packages/domain packages/usecases packages/db apps/node-server; do (cd "$pkg" && npx tsc --noEmit); done
+# smoke:
+AIRWAVE_FFMPEG_PATH=... AIRWAVE_FFPROBE_PATH=... node --experimental-strip-types apps/node-server/src/main.ts
 ```
-
-- Backend tests: `cd apps/server && python -m pytest` (repo-root venv)
-- Frontend build check: `npm run build` (workspace root)
-- Contract types: `npm run contracts:gen` after changing response models
-- Smoke: `uvicorn app.main:create_app --factory` then open `/` (UI) and `/docs` (OpenAPI)
 
 ## Before finishing
 
-- Run the smallest relevant validation for what you changed (`pytest` subset, `npm run build`, …).
-- Backend behavior changed → run `python -m pytest`.
+- Run the smallest relevant validation (vitest subset, `npm run build`, tsc).
 - Call out any validation you could not run.
 - Never commit secrets, `.env`, binaries, or DB files.
-- Doc-sync rule applies (see above).

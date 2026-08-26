@@ -7,6 +7,7 @@
  * the full user journey: stop → queue → play-now → PLAYING.
  */
 
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,6 +15,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
 
 import { createApp } from "../src/app.ts";
+
+const FFMPEG = process.env.AIRWAVE_FFMPEG_PATH ?? "ffmpeg";
+const binariesAvailable = spawnSync(FFMPEG, ["-version"]).status === 0;
 
 let dir: string;
 let localMediaRoot: string;
@@ -62,7 +66,9 @@ afterAll(async () => {
 const stateMode = async (): Promise<string> =>
   (await (await request(base()).get("/api/state")).body).mode;
 
-describe("play-now resumes from user-stopped state (v2.2.0 regression)", () => {
+describe.skipIf(process.env.CI && !binariesAvailable)(
+  "play-now resumes from user-stopped state (v2.2.0 regression) — needs ffmpeg",
+  () => {
   it("stop → add → play-now → engine plays (the exact user journey)", async () => {
     // Seed: one track playing, then the user stops playback.
     await request(base()).post("/api/queue/add").send({ url: "https://youtu.be/first" });

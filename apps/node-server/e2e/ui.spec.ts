@@ -105,7 +105,9 @@ test.describe("UI shell", () => {
       })) as { body?: { title?: string } };
       const title = ((res as unknown as { body?: { title?: string } }).body?.title ?? "") as string;
       await expect
-        .poll(async () => (await (await request.get("/api/state")).json()).mode, { timeout: 30_000 })
+        .poll(async () => (await (await request.get("/api/state")).json()).mode, {
+          timeout: AGAINST_PROD ? 90_000 : 30_000,
+        })
         .toBe("playing");
       return title;
     }
@@ -175,7 +177,9 @@ test.describe("UI shell", () => {
       await request.post("/api/queue/clear", {});
       await request.post("/api/queue/add", { data: { url: AGAINST_PROD ? REAL_VIDEO_URL : "https://www.youtube.com/watch?v=e2e-play" } });
       await expect
-        .poll(async () => (await (await request.get("/api/state")).json()).mode, { timeout: 30_000 })
+        .poll(async () => (await (await request.get("/api/state")).json()).mode, {
+          timeout: AGAINST_PROD ? 90_000 : 30_000,
+        })
         .toBe("playing");
       // The <audio> element must reach HAVE_METADATA or beyond (HLS actually feeding it).
       const readyState = await page.evaluate(() => document.querySelector("audio")?.readyState ?? 0);

@@ -84,11 +84,10 @@ FROM node:22-slim
 ARG APP_VERSION
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates passwd \
+    curl ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
-    && useradd -m -u 1000 airwave && \
-    mkdir -p /app/bin /app/data && \
-    chown -R airwave:airwave /app
+    && mkdir -p /app/bin /app/data && \
+    chown -R node:node /app
 
 WORKDIR /app
 
@@ -117,7 +116,7 @@ ENV NODE_ENV=production \
     AIRWAVE_STATIC_DIR=/app/apps/node-server/static-dist \
     PATH="/app/bin:${PATH}"
 
-USER airwave
+USER node
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \

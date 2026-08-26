@@ -42,6 +42,9 @@ test.describe("UI shell", () => {
     await expect(page.getByText(marker, { exact: false }).first()).toBeVisible({ timeout: 30_000 });
   });
 
+  test.describe("journey", () => {
+  test.skip(!binariesAvailable, "ffmpeg/ffprobe not available");
+
   test("user journey: search → click play on a result → playback starts", async ({ page, request }) => {
     // Hermetic start: clear queue, stop, then verify idle — the exact
     // conditions of the incident (userStopped latched, nothing playing).
@@ -79,6 +82,7 @@ test.describe("UI shell", () => {
       .poll(async () => (await (await request.get("/api/state")).json()).mode, { timeout: 15_000 })
       .toBe("idle");
   }, 120_000);
+  });
 
   test("deep link renders the SPA (history-mode fallback)", async ({ page }) => {
     const response = await page.goto("/explorer");

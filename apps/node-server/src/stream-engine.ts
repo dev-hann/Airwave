@@ -402,15 +402,15 @@ export class StreamEngine {
    * "Play now" semantics: the user explicitly asked for playback.
    * - user-stopped: clear the flag; the idle loop re-checks it every poll
    *   (streamIdle) and exits to dequeue once it clears with items queued.
-   *   No skip interrupt here — two back-to-back requestInterrupt calls race
-   *   (single-slot reason) and the second could strand the idle loop.
-   * - already playing: the caller queued a different item up front, so skip
-   *   to it.
+   *   No interrupt here — resumePlayback() (proven path) also clears the
+   *   flag without one, and an injected resume_from_stop could race the
+   *   idle loop's chunk wait on real (slow) pipelines.
+   * - already playing/paused: the caller queued a different item up front,
+   *   so skip to it.
    */
   playNow(): void {
     if (this.userStopped) {
       this.userStopped = false;
-      this.requestInterrupt("resume_from_stop");
     } else if (this.state.mode === "playing" || this.state.paused) {
       this.requestInterrupt("skip");
     }

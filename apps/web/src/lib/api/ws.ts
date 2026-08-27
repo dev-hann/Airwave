@@ -31,6 +31,10 @@ let started = false;
 let lastAppliedTimestamp = 0;
 let parseWarned = false;
 
+/** Injectable for tests: constructs the transport socket. */
+export type WebSocketFactory = (url: string) => WebSocket;
+let socketFactory: WebSocketFactory = (url) => new WebSocket(url);
+
 function websocketUrl(): string {
   const scheme = window.location.protocol === "https:" ? "wss" : "ws";
   return `${scheme}://${window.location.host}/api/ws/events`;
@@ -85,7 +89,7 @@ function connect(): void {
     wsClient.onerror = null;
     wsClient.close();
   }
-  wsClient = new WebSocket(websocketUrl());
+  wsClient = socketFactory(websocketUrl());
   wsClient.onopen = () => {
     reconnectDelayMs = 1000;
     connectionState.value = "connected";
@@ -110,6 +114,32 @@ export function connectWebsocket(): void {
   if (started) return;
   started = true;
   connect();
+}
+
+/** Test-only: swap the transport factory and reset module state. */
+export function __setWebSocketFactoryForTests(factory: WebSocketFactory): void {
+  socketFactory = factory;
+}
+
+/** Test-only: reset started/timestamp/staleness state and drop the client. */
+export function __resetForTests(): void {
+  started = false;
+  lastAppliedTimestamp = 0;
+  parseWarned = false;
+  reconnectDelayMs = 1000;
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  if (wsClient) {
+    wsClient.onopen = null;
+    wsClient.onmessage = null;
+    wsClient.onclose = null;
+    wsClient.onerror = null;
+    wsClient.close();
+    wsClient = null;
+  }
+  connectionState.value = "disconnected";
 }
 
 /** Subscribe to validated state messages. Returns an unsubscribe function. */

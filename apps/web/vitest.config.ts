@@ -7,7 +7,8 @@ export default defineConfig({
     },
   },
   test: {
-    environment: "node",
+    // ws.ts reads window.location — the ws tests need a DOM.
+    environment: "jsdom",
     include: ["src/**/*.test.ts"],
   },
 });

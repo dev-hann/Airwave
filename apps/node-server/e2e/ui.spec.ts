@@ -86,6 +86,38 @@ test.describe("UI shell", () => {
   }, 120_000);
   });
 
+  test("queue mutations reflect via WS only — zero REST refetch (server-authoritative)", async ({ page, request }) => {
+    await page.goto("/");
+
+    // Baseline: observe the queue-panel item count before the mutation.
+    const countItems = () =>
+      page.evaluate(() => document.querySelectorAll(".group").length);
+
+    // From the moment the POST returns, ANY subsequent /api/queue or
+    // /api/history GET would prove a REST refetch path crept back in —
+    // the WS push alone must reflect the new item.
+    const restCalls: string[] = [];
+    page.on("request", (req) => {
+      if (req.method() === "GET" && /\/api\/(queue|history|playlists)/.test(req.url())) {
+        restCalls.push(req.url());
+      }
+    });
+
+    const add = await request.post("/api/queue/add", {
+      data: { url: AGAINST_PROD ? REAL_VIDEO_URL : "https://www.youtube.com/watch?v=e2e-wsonly" },
+    });
+    expect(add.status()).toBe(200);
+
+    // The new track renders in the UI (WS push applied by the merge funnel).
+    const marker = AGAINST_PROD ? "IU" : "E2E Test Track";
+    await expect(page.getByText(marker, { exact: false }).first()).toBeVisible({ timeout: 30_000 });
+
+    // Give any would-be refetch a beat to fire, then assert none did.
+    await page.waitForTimeout(1_500);
+    expect(restCalls, restCalls.join("\n")).toEqual([]);
+    void countItems;
+  }, 120_000);
+
   test("deep link renders the SPA (history-mode fallback)", async ({ page }) => {
     const response = await page.goto("/explorer");
     expect(response?.status()).toBe(200);

@@ -92,14 +92,30 @@ export const PlaylistEntrySchema = z.object({
   position: z.number().int(),
 });
 
-/** WS snapshot payload (legacy flat shape — kept for web compatibility). */
-export const UiSnapshotSchema = z.object({
-  type: z.literal("snapshot"),
-  timestamp: z.number(),
-  state: PlaybackStateSchema,
-  queue: z.array(QueueItemSchema),
-  history: z.array(HistoryRowSchema),
-  playlists: z.array(PlaylistSchema),
+/**
+ * WS message envelope — server → client state push.
+ *
+ * Single message type `state`: the server is the sole authority and every
+ * push carries the changed domains inside `data` (presence-based merge —
+ * absent keys are left untouched by clients). `timestamp` is int
+ * milliseconds, monotonic-clamped by the broker; clients DROP messages
+ * whose timestamp is strictly lower than the last applied one.
+ *
+ * `type` is intentionally a single literal kept as the discriminator so
+ * future message kinds (ping, command ack, …) can join a
+ * z.discriminatedUnion without touching the envelope shape.
+ */
+export const StateDataSchema = z.object({
+  state: PlaybackStateSchema.optional(),
+  queue: z.array(QueueItemSchema).optional(),
+  history: z.array(HistoryRowSchema).optional(),
+  playlists: z.array(PlaylistSchema).optional(),
+});
+
+export const WsMessageSchema = z.object({
+  timestamp: z.number().int(),
+  type: z.literal("state"),
+  data: StateDataSchema,
 });
 
 export type PlaybackStatePayload = z.infer<typeof PlaybackStateSchema>;
@@ -107,4 +123,5 @@ export type QueueItemPayload = z.infer<typeof QueueItemSchema>;
 export type HistoryRowPayload = z.infer<typeof HistoryRowSchema>;
 export type PlaylistPayload = z.infer<typeof PlaylistSchema>;
 export type PlaylistEntryPayload = z.infer<typeof PlaylistEntrySchema>;
-export type UiSnapshotPayload = z.infer<typeof UiSnapshotSchema>;
+export type StateDataPayload = z.infer<typeof StateDataSchema>;
+export type WsMessagePayload = z.infer<typeof WsMessageSchema>;

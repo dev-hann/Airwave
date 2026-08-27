@@ -34,16 +34,12 @@ describe("queue store", () => {
     expect(deleteJson).toHaveBeenCalledWith("/api/queue");
   });
 
-  it("reorderQueueItem posts new_position then refreshes queue+history", async () => {
-    const { fetchJson } = await import("../lib/api/http");
-    vi.mocked(fetchJson).mockReset().mockResolvedValue([]);
+  it("reorderQueueItem posts new_position (WS push reflects the result)", async () => {
     const store = useQueueStore();
 
     await store.reorderQueueItem(7, 3);
 
     expect(postJson).toHaveBeenCalledWith("/api/queue/7/reorder", { new_position: 3 });
-    expect(fetchJson).toHaveBeenCalledWith("/api/queue");
-    expect(fetchJson).toHaveBeenCalledWith("/api/history");
   });
 });
 
@@ -53,9 +49,10 @@ describe("history store", () => {
     vi.mocked(deleteJson).mockReset().mockResolvedValue(null);
   });
 
-  it("clearHistory issues DELETE on /api/history", async () => {
+  it("clearHistory posts to /api/history/clear (the actual route)", async () => {
+    vi.mocked(postJson).mockReset().mockResolvedValue({});
     await useHistoryStore().clearHistory();
-    expect(deleteJson).toHaveBeenCalledWith("/api/history");
+    expect(postJson).toHaveBeenCalledWith("/api/history/clear");
   });
 
   it("setHistory replaces rows wholesale", () => {

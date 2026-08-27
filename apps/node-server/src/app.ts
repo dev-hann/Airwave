@@ -21,7 +21,7 @@ import { PlaylistService } from "./playlist-service.ts";
 import type { PlaylistPreview, SearchResultItem } from "./yt-dlp-service.ts";
 import { StreamEngine } from "./stream-engine.ts";
 import { UiEventBroker } from "./ui-events.ts";
-import { buildUiSnapshot, serializePlaylist, serializePlaylistEntry, serializeQueueItem } from "./serializers.ts";
+import { buildStateData, serializePlaylist, serializePlaylistEntry, serializeQueueItem } from "./serializers.ts";
 
 const asInt = (value: unknown, fallback: number | null = null): number | null => {
   const parsed = Number(value);
@@ -66,17 +66,33 @@ export function createApp(options: AppOptions) {
       pipeline.spawnHlsPackager(playlistPath, segmentPattern, { startNumber: opts.startNumber, segmentSeconds: 4, hlsBitrate: "192k" }),
   });
 
-  const broker = new UiEventBroker(() => buildUiSnapshot(engine, repo, streamPath));
+  const envelopeTimestamp = () => {
+    // Monotonic-clamped ms — the client staleness-guard key.
+    const now = Math.trunc(Date.now());
+    brokerStamp = Math.max(now, brokerStamp);
+    return brokerStamp;
+  };
+  let brokerStamp = 0;
+  const broker = new UiEventBroker((domains) => {
+    const data = buildStateData(engine, repo, streamPath, domains);
+    return JSON.stringify({ timestamp: envelopeTimestamp(), type: "state", data });
+  });
   const engine = new StreamEngine({
     repository: repo,
     ffmpegPipeline: pipeline,
     segmenter,
     trackSource: options.trackSource,
-    onStateChange: () => broker.publishSnapshot(),
+    onStateChange: () => broker.publishSnapshot(),  // engine transitions = full push
   });
 
   const streamPath = options.streamPath ?? "/stream/live.m3u8";
-  const publish = () => broker.publishSnapshot();
+  // Domain-scoped publishes. Playback routes rely on the ENGINE's
+  // notifyStateChanged (wired to publishAll) — they must not double-fire.
+  const publishAll = () => broker.publishSnapshot(["state", "queue", "history", "playlists"]);
+  const publishState = () => broker.publishSnapshot(["state"]);
+  const publishQueue = () => broker.publishSnapshot(["queue", "history"]);
+  const publishPlaylists = () => broker.publishSnapshot(["playlists"]);
+  const publishHistory = () => broker.publishSnapshot(["history"]);
 
   // Ingestion services (playlist/queue flows + local media).
   const ytDlpAdapter = {
@@ -89,7 +105,7 @@ export function createApp(options: AppOptions) {
     resolveVideo: (url: string, forceRefresh?: boolean) => options.trackSource.resolveVideo(url, forceRefresh),
   };
   const mediaResolver = new MediaSourceResolver(options.localMediaRoots ?? [], (url) => pipeline.probeSource(url));
-  const playlistsSvc = new PlaylistService(repo, ytDlpAdapter, mediaResolver, { publish });
+  const playlistsSvc = new PlaylistService(repo, ytDlpAdapter, mediaResolver, { publish: publishPlaylists });
   const wrapServiceError = (res: Response, error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     res.status(/not found/i.test(message) ? 404 : 400).json({ detail: message });
@@ -104,39 +120,34 @@ export function createApp(options: AppOptions) {
   // ----------------------------------------------------------------- state
 
   app.get("/api/state", (_req, res) => {
-    res.json(buildUiSnapshot(engine, repo, streamPath).state);
+    res.json(buildStateData(engine, repo, streamPath, ["state"]).state ?? {});
   });
 
   // -------------------------------------------------------------- playback
 
   app.post("/api/playback/resume", (_req, res) => {
     const outcome = engine.resumePlayback();
-    publish();
     res.json({ ok: true, outcome });
   });
 
   // Python-era alias: the web store posts /play to (re)start playback.
   app.post("/api/playback/play", (_req, res) => {
     const outcome = engine.resumePlayback();
-    publish();
     res.json({ ok: true, outcome });
   });
 
   app.post("/api/playback/stop", (_req, res) => {
     engine.stopPlayback();
-    publish();
     res.json({ ok: true });
   });
 
   app.post("/api/playback/previous", (_req, res) => {
     const outcome = engine.playPreviousOrRestart();
-    publish();
     res.json({ ok: true, outcome });
   });
 
   app.post("/api/playback/toggle-pause", (_req, res) => {
     const paused = engine.togglePause();
-    publish();
     res.json({ ok: true, paused });
   });
 
@@ -144,7 +155,6 @@ export function createApp(options: AppOptions) {
     const mode = String(req.body?.mode ?? "");
     try {
       const value = engine.setRepeatMode(mode);
-      publish();
       res.json({ ok: true, repeat_mode: value });
     } catch {
       res.status(400).json({ detail: "Invalid repeat mode" });
@@ -154,7 +164,6 @@ export function createApp(options: AppOptions) {
   app.post("/api/playback/shuffle", (req, res) => {
     const enabled = Boolean(req.body?.enabled);
     const value = engine.setShuffleEnabled(enabled);
-    publish();
     res.json({ ok: true, shuffle_enabled: value });
   });
 
@@ -165,7 +174,6 @@ export function createApp(options: AppOptions) {
       return;
     }
     const ok = engine.seekToPercent(percent);
-    if (ok) publish();
     res.json({ ok });
   });
 
@@ -183,7 +191,7 @@ export function createApp(options: AppOptions) {
     }
     try {
       const result = await playlistsSvc.addUrl(url);
-      publish();
+      publishQueue();
       res.json({ ok: true, ...result });
     } catch (error) {
       wrapServiceError(res, error);
@@ -198,7 +206,7 @@ export function createApp(options: AppOptions) {
     }
     try {
       const result = await playlistsSvc.addLocalPath(path);
-      publish();
+      publishQueue();
       res.json({ ok: true, ...result });
     } catch (error) {
       wrapServiceError(res, error);
@@ -213,7 +221,7 @@ export function createApp(options: AppOptions) {
     }
     try {
       const result = await playlistsSvc.addLocalFolder(path, req.body?.recursive !== false);
-      publish();
+      publishQueue();
       res.json({ ok: true, ...result });
     } catch (error) {
       wrapServiceError(res, error);
@@ -234,7 +242,7 @@ export function createApp(options: AppOptions) {
         repo.moveItemToFront(result.item_ids[0]!);
       }
       engine.playNow();
-      publish();
+      publishAll();
       res.json({ ok: true, ...result });
     } catch (error) {
       wrapServiceError(res, error);
@@ -253,7 +261,7 @@ export function createApp(options: AppOptions) {
         repo.reorderQueuedItems(result.item_ids);
       }
       engine.playNow();
-      publish();
+      publishAll();
       res.json({ ok: true, ...result });
     } catch (error) {
       wrapServiceError(res, error);
@@ -272,7 +280,7 @@ export function createApp(options: AppOptions) {
         repo.reorderQueuedItems(result.item_ids);
       }
       engine.playNow();
-      publish();
+      publishAll();
       res.json({ ok: true, ...result });
     } catch (error) {
       wrapServiceError(res, error);
@@ -296,7 +304,7 @@ export function createApp(options: AppOptions) {
       res.status(404).json({ detail: "Queue item not found" });
       return;
     }
-    publish();
+    publishQueue();
     res.json({ ok: true });
   });
 
@@ -309,14 +317,14 @@ export function createApp(options: AppOptions) {
     }
     const ok = repo.removeItem(itemId!);
     if (item.status === "playing") engine.skip();
-    publish();
+    publishQueue();
     res.json({ ok });
   });
 
   // Legacy alias from the early Node port.
   app.post("/api/queue/remove/:id", (req, res) => {
     const ok = repo.removeItem(Number(req.params.id));
-    publish();
+    publishQueue();
     res.json({ ok });
   });
 
@@ -328,7 +336,7 @@ export function createApp(options: AppOptions) {
       return;
     }
     repo.reorderItem(itemId, newPosition);
-    publish();
+    publishQueue();
     res.json({ ok: true });
   });
 
@@ -336,13 +344,13 @@ export function createApp(options: AppOptions) {
     const hasPlaying = repo.listQueue().some((item) => item.status === "playing");
     repo.clearQueue();
     if (hasPlaying) engine.skip();
-    publish();
+    publishQueue();
     res.json({ ok: true });
   });
 
   app.post("/api/queue/clear", (_req, res) => {
     const removed = repo.clearQueue();
-    publish();
+    publishQueue();
     res.json({ ok: true, removed });
   });
 
@@ -409,12 +417,12 @@ export function createApp(options: AppOptions) {
 
   app.get("/api/history", (req, res) => {
     const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
-    res.json(buildUiSnapshot(engine, repo, streamPath, limit).history);
+    res.json(buildStateData(engine, repo, streamPath, ["history"], limit).history ?? []);
   });
 
   app.post("/api/history/clear", (_req, res) => {
     repo.clearHistory();
-    publish();
+    publishHistory();
     res.json({ ok: true });
   });
 
@@ -437,7 +445,7 @@ export function createApp(options: AppOptions) {
       return;
     }
     const created = repo.createCustomPlaylist(title);
-    publish();
+    publishPlaylists();
     res.json(serializePlaylist(created));
   });
 
@@ -448,7 +456,7 @@ export function createApp(options: AppOptions) {
       return;
     }
     const created = repo.createCustomPlaylist(title);
-    publish();
+    publishPlaylists();
     res.json(serializePlaylist(created));
   });
 
@@ -491,7 +499,7 @@ export function createApp(options: AppOptions) {
       res.status(404).json({ detail: "Playlist not found" });
       return;
     }
-    publish();
+    publishPlaylists();
     res.json(serializePlaylist(updated));
   });
 
@@ -506,7 +514,7 @@ export function createApp(options: AppOptions) {
       return;
     }
     repo.deletePlaylist(req.params.id);
-    publish();
+    publishPlaylists();
     res.json({ ok: true });
   });
 
@@ -519,7 +527,7 @@ export function createApp(options: AppOptions) {
     }
     try {
       playlistsSvc.reorderSidebarPlaylist(playlistId, newPosition, Boolean(req.body?.pinned));
-      publish();
+      publishPlaylists();
       res.json({ ok: true });
     } catch (error) {
       wrapServiceError(res, error);
@@ -547,7 +555,7 @@ export function createApp(options: AppOptions) {
     }
     try {
       const result = await playlistsSvc.addItemToPlaylist(req.params.id, url, req.body.import_mode ?? null);
-      if (!result.has_duplicates) publish();
+      if (!result.has_duplicates) publishPlaylists();
       res.json(result);
     } catch (error) {
       wrapServiceError(res, error);
@@ -566,7 +574,7 @@ export function createApp(options: AppOptions) {
     }
     try {
       const result = await playlistsSvc.addLocalPathToPlaylist(req.params.id, path, req.body.import_mode ?? null);
-      if (!result.has_duplicates) publish();
+      if (!result.has_duplicates) publishPlaylists();
       res.json(result);
     } catch (error) {
       wrapServiceError(res, error);
@@ -585,7 +593,7 @@ export function createApp(options: AppOptions) {
     }
     try {
       const result = await playlistsSvc.addLocalFolderToPlaylist(req.params.id, path, req.body?.recursive !== false, req.body.import_mode ?? null);
-      if (!result.has_duplicates) publish();
+      if (!result.has_duplicates) publishPlaylists();
       res.json(result);
     } catch (error) {
       wrapServiceError(res, error);
@@ -617,7 +625,7 @@ export function createApp(options: AppOptions) {
         })),
         req.body.import_mode ?? null,
       );
-      if (!result.has_duplicates) publish();
+      if (!result.has_duplicates) publishPlaylists();
       res.json(result);
     } catch (error) {
       wrapServiceError(res, error);
@@ -627,7 +635,7 @@ export function createApp(options: AppOptions) {
   app.post("/api/playlists/:id/queue", (req, res) => {
     try {
       const result = playlistsSvc.queuePlaylist(req.params.id);
-      publish();
+      publishQueue();
       res.json(result);
     } catch (error) {
       wrapServiceError(res, error);
@@ -638,7 +646,7 @@ export function createApp(options: AppOptions) {
     try {
       const result = playlistsSvc.queuePlaylist(req.params.id, true);
       engine.playNow();
-      publish();
+      publishAll();
       res.json(result);
     } catch (error) {
       wrapServiceError(res, error);
@@ -648,7 +656,7 @@ export function createApp(options: AppOptions) {
   app.post("/api/playlists/entries/:entryId/queue", (req, res) => {
     try {
       const result = playlistsSvc.queuePlaylistEntry(asInt(req.params.entryId, 0)!);
-      publish();
+      publishQueue();
       res.json(result);
     } catch (error) {
       wrapServiceError(res, error);
@@ -660,7 +668,7 @@ export function createApp(options: AppOptions) {
       res.status(404).json({ detail: "Playlist entry not found" });
       return;
     }
-    publish();
+    publishPlaylists();
     res.status(204).end();
   });
 
@@ -672,7 +680,7 @@ export function createApp(options: AppOptions) {
     }
     try {
       playlistsSvc.reorderPlaylistEntry(asInt(req.params.entryId, 0)!, newPosition);
-      publish();
+      publishPlaylists();
       res.json({ ok: true });
     } catch (error) {
       wrapServiceError(res, error);
@@ -715,7 +723,7 @@ export function createApp(options: AppOptions) {
     }
     if (repo.playlistContainsTrack(liked.id, item.normalizedUrl, item.providerItemId)) {
       const current = repo.listPlaylistEntries(liked.id).find((entry) => entry.normalizedUrl === item.normalizedUrl);
-      res.json({ ok: true, liked: true, skipped_duplicates: false, state: buildUiSnapshot(engine, repo, streamPath).state });
+      res.json({ ok: true, liked: true, skipped_duplicates: false, state: buildStateData(engine, repo, streamPath, ["state"]).state });
       void current;
       return;
     }
@@ -729,8 +737,8 @@ export function createApp(options: AppOptions) {
       durationSeconds: item.durationSeconds,
       thumbnailUrl: item.thumbnailUrl,
     });
-    publish();
-    res.json({ ok: true, liked: true, skipped_duplicates: false, state: buildUiSnapshot(engine, repo, streamPath).state });
+    publishState();
+    res.json({ ok: true, liked: true, skipped_duplicates: false, state: buildStateData(engine, repo, streamPath, ["state"]).state });
   });
 
   app.post("/api/state/unlike", (req, res) => {
@@ -751,8 +759,8 @@ export function createApp(options: AppOptions) {
     if (match) {
       removed = repo.removePlaylistEntry(match.id);
     }
-    publish();
-    res.json({ ok: true, unliked: true, removed, state: buildUiSnapshot(engine, repo, streamPath).state });
+    publishState();
+    res.json({ ok: true, unliked: true, removed, state: buildStateData(engine, repo, streamPath, ["state"]).state });
   });
 
   // --------------------------------------------------------------- settings

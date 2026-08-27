@@ -12,15 +12,11 @@ import type {
   HistoryRowPayload,
   PlaybackStatePayload,
   QueueItemPayload,
-  UiSnapshotPayload,
 } from "@airwave/shared/contracts";
 
 export type PlaybackStateContract = PlaybackStatePayload;
 export type QueueItem = QueueItemPayload;
 export type HistoryRow = HistoryRowPayload;
-
-/** WS `{"type": "snapshot"}` payload — see `lib/api/ws.ts`. */
-export type UiSnapshot = UiSnapshotPayload;
 
 /** `GET /api/playlists` item — derived from `PlaylistService._serialize_playlist`. */
 export interface Playlist {

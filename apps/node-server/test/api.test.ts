@@ -177,11 +177,16 @@ describe("API", () => {
       const ws = new WebSocket(`ws://127.0.0.1:${port}/api/ws/events`);
       const timeout = setTimeout(() => reject(new Error("ws timeout")), 5000);
       ws.on("message", (raw) => {
-        const payload = JSON.parse(String(raw)) as { type: string; state: object; queue: unknown[]; history: unknown[]; playlists: unknown[] };
-        expect(payload.type).toBe("snapshot");
-        expect(payload.state).toHaveProperty("stream_url", "/stream/live.m3u8");
-        expect(Array.isArray(payload.queue)).toBe(true);
-        expect(Array.isArray(payload.playlists)).toBe(true);
+        const payload = JSON.parse(String(raw)) as {
+          timestamp: number;
+          type: string;
+          data: { state?: object; queue?: unknown[]; history?: unknown[]; playlists?: unknown[] };
+        };
+        expect(payload.type).toBe("state");
+        expect(Number.isInteger(payload.timestamp)).toBe(true);
+        expect(payload.data.state).toHaveProperty("stream_url", "/stream/live.m3u8");
+        expect(Array.isArray(payload.data.queue)).toBe(true);
+        expect(Array.isArray(payload.data.playlists)).toBe(true);
         clearTimeout(timeout);
         ws.close();
         resolve();

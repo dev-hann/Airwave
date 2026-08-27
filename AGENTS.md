@@ -29,7 +29,7 @@ Core working guide for code agents in this repo. This file is the **index** — 
 1. `/stream/live.m3u8` stays ONE HLS stream for all listeners. No per-client transcoding.
 2. Subprocesses use list-argv `spawn` only — never `shell`, never string interpolation.
 3. Shared services come from the app instance (composition root). No ad-hoc globals.
-4. Wire payloads are defined by `packages/shared/src/contracts.ts` (zod); `apps/node-server/test/api-parity.test.ts` pins every endpoint the web calls — add new endpoints there in the same commit — server and web import the SAME module; breaking changes ship in one commit with web consumers.
+4. Wire payloads are defined by `packages/shared/src/contracts.ts` (zod), including the WS envelope `WsMessageSchema` (`{timestamp(ms, monotonic), type:"state", data:{…domains}}`) — server pushes domain-keyed state, clients merge present keys and drop strictly-older timestamps; `apps/node-server/test/api-parity.test.ts` pins every endpoint the web calls — add new endpoints there in the same commit — server and web import the SAME module; breaking changes ship in one commit with web consumers.
 5. Env-driven behavior via `AIRWAVE_*` env vars (see main.ts), not hardcoded values.
 6. New DB columns: extend the Drizzle schema in `packages/db/src/schema.ts` + DDL in `Repository.init()`. No ORM-generated migration tooling beyond that.
 7. Vue changes require `pnpm run build` before finishing; frontend unit tests (`pnpm --filter @airwave/web test`) and typecheck (`pnpm --filter @airwave/web typecheck`) must pass (CI runs all three).

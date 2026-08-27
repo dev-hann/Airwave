@@ -7,7 +7,7 @@
 import type { PlayHistoryRow, PlaylistEntryRow, PlaylistRow, QueueItemRow } from "@airwave/db";
 import { playbackProgress } from "@airwave/domain";
 import type { PlaybackState } from "@airwave/domain";
-import type { HistoryRowPayload, PlaybackStatePayload, PlaylistEntryPayload, PlaylistPayload, QueueItemPayload } from "@airwave/shared/contracts";
+import type { HistoryRowPayload, PlaybackStatePayload, PlaylistEntryPayload, PlaylistPayload, QueueItemPayload, StateDataPayload } from "@airwave/shared/contracts";
 
 import { StreamEngine } from "./stream-engine.ts";
 
@@ -149,31 +149,47 @@ export function serializePlaylistEntry(row: PlaylistEntryRow): PlaylistEntryPayl
 }
 
 export interface UiSnapshot {
-  type: "snapshot";
+  type: "state";
   timestamp: number;
-  state: PlaybackStatePayload;
-  queue: QueueItemPayload[];
-  history: HistoryRowPayload[];
-  playlists: PlaylistPayload[];
+  data: StateDataPayload;
 }
 
-export function buildUiSnapshot(engine: StreamEngine, repo: import("@airwave/db").Repository, streamUrl: string, historyLimit = 50): UiSnapshot {
-  const state = engine.state;
-  const progress = playbackProgress(state, performance.now() / 1000);
-  let liked = false;
-  const likedPlaylist = repo.getPlaylistBySourceUrl("custom://liked_songs");
-  if (likedPlaylist && state.nowPlayingId !== null) {
-    const item = repo.getItem(state.nowPlayingId);
-    if (item) {
-      liked = repo.playlistContainsTrack(likedPlaylist.id, item.normalizedUrl, item.providerItemId);
+export type StateDomain = "state" | "queue" | "history" | "playlists";
+
+/**
+ * Build the domains of a WS push. Only the requested domains are computed —
+ * the `state` domain alone costs the liked-playlist DB queries, so partial
+ * pushes (e.g. playlist edits) skip them entirely.
+ */
+export function buildStateData(
+  engine: StreamEngine,
+  repo: import("@airwave/db").Repository,
+  streamUrl: string,
+  domains: StateDomain[],
+  historyLimit = 50,
+): StateDataPayload {
+  const data: StateDataPayload = {};
+  if (domains.includes("state")) {
+    const state = engine.state;
+    const progress = playbackProgress(state, performance.now() / 1000);
+    let liked = false;
+    const likedPlaylist = repo.getPlaylistBySourceUrl("custom://liked_songs");
+    if (likedPlaylist && state.nowPlayingId !== null) {
+      const item = repo.getItem(state.nowPlayingId);
+      if (item) {
+        liked = repo.playlistContainsTrack(likedPlaylist.id, item.normalizedUrl, item.providerItemId);
+      }
     }
+    data.state = serializeState(state, progress, streamUrl, liked);
   }
-  return {
-    type: "snapshot",
-    timestamp: Date.now(),
-    state: serializeState(state, progress, streamUrl, liked),
-    queue: repo.listQueue().map(serializeQueueItem),
-    history: repo.listHistory(historyLimit).map(serializeHistoryRow),
-    playlists: repo.listPlaylists().map(serializePlaylist),
-  };
+  if (domains.includes("queue")) {
+    data.queue = repo.listQueue().map(serializeQueueItem);
+  }
+  if (domains.includes("history")) {
+    data.history = repo.listHistory(historyLimit).map(serializeHistoryRow);
+  }
+  if (domains.includes("playlists")) {
+    data.playlists = repo.listPlaylists().map(serializePlaylist);
+  }
+  return data;
 }

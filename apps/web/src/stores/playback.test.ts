@@ -112,13 +112,13 @@ describe("playback store — optimistic transport", () => {
     expect(store.seekEpoch).toBe(before);
   });
 
-  it("togglePause flips paused optimistically (playing → pause endpoint)", async () => {
+  it("togglePause (playing) posts pause endpoint — state arrives via WS", async () => {
     const store = usePlaybackStore();
     store.applyPlaybackState(baseState());
 
     await store.togglePause();
 
-    expect(store.playbackState.paused).toBe(true);
+    expect(store.playbackState.paused).toBe(false);
     expect(postJson).toHaveBeenCalledWith("/api/playback/toggle-pause");
   });
 
@@ -128,7 +128,7 @@ describe("playback store — optimistic transport", () => {
 
     await store.togglePause();
 
-    expect(store.playbackState.paused).toBe(false);
+    expect(store.playbackState.paused).toBe(true);
     expect(postJson).toHaveBeenCalledWith("/api/playback/play");
   });
 
@@ -179,43 +179,42 @@ describe("playback store — optimistic transport", () => {
     expect(postJson).toHaveBeenCalledWith("/api/queue/skip");
   });
 
-  it("skipCurrent preview shows next track while request is in flight", async () => {
+  it("skipCurrent posts skip — no local preview (server-authoritative)", async () => {
     let resolveSkip: (value: unknown) => void = () => {};
     vi.mocked(postJson).mockReturnValueOnce(new Promise((resolve) => (resolveSkip = resolve)));
     const store = usePlaybackStore();
-    const queueStore = useQueueStore();
-    queueStore.queue = [
-      { id: 5, source_url: "https://next", title: "Next", status: "queued", thumbnail_url: null, channel: null, duration_seconds: 200, playlist_id: null, provider: null, provider_item_id: null, queue_position: 1, source_type: "url" } as never,
-    ];
     store.applyPlaybackState(baseState());
 
     const pending = store.skipCurrent();
-    expect(store.playbackState.now_playing_title).toBe("Next");
-    expect(store.playbackState.now_playing_id).toBe(5);
+    expect(store.playbackState.now_playing_title).toBe("Title");
+    expect(store.playbackState.now_playing_id).toBe(1);
 
     resolveSkip({});
     await pending;
+    expect(postJson).toHaveBeenCalledWith("/api/queue/skip");
   });
 
-  it("likeCurrentSong merges returned state and marks liked", async () => {
-    vi.mocked(postJson).mockResolvedValueOnce({ state: { now_playing_title: "Liked title" }, skipped_duplicates: false });
+  it("likeCurrentSong posts and does not merge REST state (WS is authority)", async () => {
+    vi.mocked(postJson).mockResolvedValueOnce({ state: { now_playing_title: "Stale title" }, skipped_duplicates: false });
     const store = usePlaybackStore();
     store.applyPlaybackState(baseState());
 
     await store.likeCurrentSong();
 
-    expect(store.playbackState.now_playing_is_liked).toBe(true);
-    expect(store.playbackState.now_playing_title).toBe("Liked title");
+    expect(postJson).toHaveBeenCalledWith("/api/state/like");
+    expect(store.playbackState.now_playing_is_liked).toBe(false);
+    expect(store.playbackState.now_playing_title).toBe("Title");
   });
 
-  it("unlikeCurrentSong clears liked", async () => {
+  it("unlikeCurrentSong posts without local state mutation", async () => {
     vi.mocked(postJson).mockResolvedValueOnce({ removed: 1 });
     const store = usePlaybackStore();
     store.applyPlaybackState(baseState({ now_playing_is_liked: true }));
 
     await store.unlikeCurrentSong();
 
-    expect(store.playbackState.now_playing_is_liked).toBe(false);
+    expect(postJson).toHaveBeenCalledWith("/api/state/unlike");
+    expect(store.playbackState.now_playing_is_liked).toBe(true);
   });
 
   it("toggleLikeCurrentSong routes based on current liked state", async () => {

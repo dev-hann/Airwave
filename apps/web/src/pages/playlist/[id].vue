@@ -56,37 +56,10 @@
           aria-label="Play playlist"
           @click="() => { void playPlaylistNow(playlist.id!) }"
         />
-        <div v-if="isPlaylistSyncable(playlist) && playlist.can_edit" class="flex items-center">
-          <UButton
-            type="button"
-            :color="playlist.sync_enabled ? 'primary' : 'neutral'"
-            :variant="playlist.sync_enabled ? 'solid' : 'ghost'"
-            size="lg"
-            icon="i-bi-arrow-repeat"
-            :class="playlist.sync_enabled ? 'cursor-pointer mr-0 rounded-r-none' : 'cursor-pointer'"
-            :ui="{ rounded: 'rounded-full' }"
-            :model-value="!!playlist.sync_enabled"
-            aria-label="Toggle auto-sync playlist"
-            @click="setSyncEnabled(!playlist.sync_enabled)"
-          >
-          </UButton>
-           
-          <UTooltip text="Remove tracks missing in upstream">
-            <UButton
-              type="button"
-              :color="playlist.sync_remove_missing ? 'error' : 'neutral'"
-              :variant="playlist.sync_remove_missing ? 'soft' : 'ghost'"
-              size="lg"
-              icon="i-bi-trash-fill"
-              :class="playlist.sync_enabled ? 'cursor-pointer ml-0 rounded-l-none ' : 'invisible'"
-              :ui="{ rounded: 'rounded-full' }"
-              :model-value="!!playlist.sync_remove_missing"
-              aria-label="Toggle remove tracks missing in upstream"
-              @click="setSyncRemoveMissing(!playlist.sync_remove_missing)"
-            >
-            </UButton>
-          </UTooltip>
-        </div>
+        <!-- Auto-sync UI hidden: the SyncService was not ported in the Node
+             migration and nothing consumes these flags server-side. The
+             PATCH endpoint still accepts them; restore this block if/when
+             background playlist sync is rebuilt. -->
         <UDropdownMenu :items="dropdownItems" :ui="{ separator: 'hidden' }" @update:open="(open: boolean) => !open && resetSearch()">
           <template #playlist-filter>
             <PlaylistSelectorFilter

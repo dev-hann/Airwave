@@ -76,9 +76,9 @@ export const useQueueStore = defineStore("queue", () => {
   }
 
   async function reorderQueueItem(itemId: number | string, newPosition: number): Promise<void> {
+    // Server-authoritative: the reorder push (queue + history) arrives via WS.
     try {
       await postJson(`/api/queue/${itemId}/reorder`, { new_position: newPosition });
-      await refreshCore();
     } catch (error) {
       notifications.notifyError("Could not reorder queue", error);
     }

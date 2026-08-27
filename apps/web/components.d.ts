@@ -11,6 +11,7 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    ConnectionBadge: typeof import('./src/components/ConnectionBadge.vue')['default']
     DuplicateImportModal: typeof import('./src/components/DuplicateImportModal.vue')['default']
     ExplorerEntryMenu: typeof import('./src/components/explorer/ExplorerEntryMenu.vue')['default']
     ExplorerFile: typeof import('./src/components/explorer/ExplorerFile.vue')['default']
@@ -38,6 +39,5 @@ declare module 'vue' {
     UScrollArea: typeof import('./../../node_modules/.pnpm/@nuxt+ui@4.3.0_@babel+parser@7.29.0_@floating-ui+dom@1.7.6_@tiptap+extension-drag-handl_d5808805e2ef10297546d40b66c2abaa/node_modules/@nuxt/ui/dist/runtime/components/ScrollArea.vue')['default']
     USlider: typeof import('./../../node_modules/.pnpm/@nuxt+ui@4.3.0_@babel+parser@7.29.0_@floating-ui+dom@1.7.6_@tiptap+extension-drag-handl_d5808805e2ef10297546d40b66c2abaa/node_modules/@nuxt/ui/dist/runtime/components/Slider.vue')['default']
     UTabs: typeof import('./../../node_modules/.pnpm/@nuxt+ui@4.3.0_@babel+parser@7.29.0_@floating-ui+dom@1.7.6_@tiptap+extension-drag-handl_d5808805e2ef10297546d40b66c2abaa/node_modules/@nuxt/ui/dist/runtime/components/Tabs.vue')['default']
-    UTooltip: typeof import('./../../node_modules/.pnpm/@nuxt+ui@4.3.0_@babel+parser@7.29.0_@floating-ui+dom@1.7.6_@tiptap+extension-drag-handl_d5808805e2ef10297546d40b66c2abaa/node_modules/@nuxt/ui/dist/runtime/components/Tooltip.vue')['default']
   }
 }

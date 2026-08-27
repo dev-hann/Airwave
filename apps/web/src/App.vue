@@ -124,6 +124,7 @@ import { useBreakpoint } from "./composables/useBreakpoint";
 import { useLocalPlayback } from "./composables/useLocalPlayback";
 import { useMediaSession } from "./composables/useMediaSession";
 import { initializeLibraryData } from "./lib/api/sync";
+import { useFailureNotifications } from "./stores/history";
 import { useNotificationsStore } from "./stores/notifications";
 import { usePlaybackStore } from "./stores/playback";
 import { MOBILE_VIEW_HOME, MOBILE_VIEW_PLAYLISTS, MOBILE_VIEW_QUEUE, SIDEBAR_QUEUE_VIEW, useUiStore } from "./stores/ui";
@@ -155,6 +156,7 @@ useNotificationsStore().initialize(useToast());
 
 onMounted(async () => {
   uiStore.initialize(route);
+  useFailureNotifications();
   await Promise.allSettled([initializeLibraryData(), playbackStore.initializePlayback()]);
 });
 </script>

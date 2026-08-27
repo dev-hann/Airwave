@@ -235,7 +235,6 @@ export const usePlaylistsStore = defineStore("playlists", () => {
   async function removeFromPlaylist(entryId: number): Promise<void> {
     try {
       await deleteJson(`/api/playlists/entries/${entryId}`);
-      await refreshPlaylists();
       notifications.notifySuccess("Removed from playlist", "Item removed from playlist.");
     } catch (error) {
       notifications.notifyError("Could not remove from playlist", error);
@@ -281,7 +280,6 @@ export const usePlaylistsStore = defineStore("playlists", () => {
       if (fields.sync_remove_missing !== undefined) body.sync_remove_missing = !!fields.sync_remove_missing;
       if (Object.keys(body).length === 0) return null;
       const updated = await patchJson<Playlist>(`/api/playlists/${playlistId}`, body);
-      await refreshPlaylists();
       if (notify) notifications.notifySuccess("Playlist updated");
       return updated && typeof updated === "object" ? updated : null;
     } catch (error) {
@@ -293,7 +291,6 @@ export const usePlaylistsStore = defineStore("playlists", () => {
   async function setPlaylistPinned(playlistId: string, pinned: boolean): Promise<void> {
     try {
       await patchJson(`/api/playlists/${playlistId}`, { pinned });
-      await refreshPlaylists();
       notifications.notifySuccess(pinned ? "Playlist pinned" : "Playlist unpinned");
     } catch (error) {
       notifications.notifyError(pinned ? "Could not pin playlist" : "Could not unpin playlist", error);
@@ -303,7 +300,6 @@ export const usePlaylistsStore = defineStore("playlists", () => {
   async function deletePlaylist(playlistId: string): Promise<void> {
     try {
       await deleteJson(`/api/playlists/${playlistId}`);
-      await refreshPlaylists();
       notifications.notifySuccess("Playlist deleted");
     } catch (error) {
       notifications.notifyError("Could not delete playlist", error);
@@ -325,10 +321,8 @@ export const usePlaylistsStore = defineStore("playlists", () => {
         new_position: newPosition,
         pinned: !!pinned,
       });
-      await refreshPlaylists();
     } catch (error) {
       notifications.notifyError("Could not reorder playlists", error);
-      await refreshPlaylists();
     }
   }
 

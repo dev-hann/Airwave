@@ -1,22 +1,35 @@
 /**
  * Receive-only WebSocket client for `/api/ws/events`.
  *
- * The server pushes full-state snapshots (see glossary: "Snapshot"); there
- * are no delta events and no client→server sends (the legacy send path was
- * dead code and was removed — ADR-0004). Reconnects with exponential
- * backoff (1s doubling, 10s cap), reset on successful open.
+ * The server pushes state messages under the shared envelope
+ * `{timestamp(ms, monotonic), type:"state", data:{…domains}}` — validated
+ * here with the zod contract (packages/shared/contracts.ts), which BOTH
+ * sides import. Messages with a timestamp strictly lower than the last
+ * applied one are dropped (stale snapshots must never clobber newer
+ * state). No client→server sends (ADR-0004). Reconnects with exponential
+ * backoff (1s doubling, 10s cap), reset on successful open; the server
+ * answers every (re)connect with a fresh FULL snapshot, so recovery is
+ * automatic. Connection status is surfaced for UI indicators.
  */
 
-import type { UiSnapshot } from "../../types/api";
+import { WsMessageSchema, type WsMessagePayload } from "@airwave/shared/contracts";
+import { ref } from "vue";
 
-type SnapshotHandler = (snapshot: UiSnapshot) => void;
+export type ConnectionState = "connecting" | "connected" | "reconnecting" | "disconnected";
 
-const snapshotHandlers = new Set<SnapshotHandler>();
+type MessageHandler = (message: WsMessagePayload) => void;
+
+const messageHandlers = new Set<MessageHandler>();
+
+/** Reactive connection status for badges/indicators. */
+export const connectionState = ref<ConnectionState>("disconnected");
 
 let wsClient: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectDelayMs = 1000;
 let started = false;
+let lastAppliedTimestamp = 0;
+let parseWarned = false;
 
 function websocketUrl(): string {
   const scheme = window.location.protocol === "https:" ? "wss" : "ws";
@@ -24,6 +37,7 @@ function websocketUrl(): string {
 }
 
 function scheduleReconnect(): void {
+  connectionState.value = started ? "reconnecting" : "disconnected";
   if (reconnectTimer) return;
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
@@ -37,26 +51,33 @@ function handleIncoming(raw: string): void {
   try {
     payload = JSON.parse(raw);
   } catch {
-    return; // Malformed frame — nothing to do; next snapshot resyncs state.
+    return; // Malformed frame — nothing to do; the next snapshot resyncs.
   }
-  if (
-    payload !== null &&
-    typeof payload === "object" &&
-    (payload as { type?: unknown }).type === "snapshot"
-  ) {
-    const snapshot = payload as UiSnapshot;
-    for (const handler of snapshotHandlers) {
-      try {
-        handler(snapshot);
-      } catch {
-        // Handler errors must not break other subscribers or the socket.
-      }
+  const parsed = WsMessageSchema.safeParse(payload);
+  if (!parsed.success) {
+    if (!parseWarned) {
+      parseWarned = true;
+      console.warn("[ws] message failed contract validation; ignoring", parsed.error.issues[0]);
+    }
+    return;
+  }
+  const message = parsed.data;
+  // Staleness guard: strictly older snapshots are superseded; equal is OK
+  // (idempotent full snapshots).
+  if (message.timestamp < lastAppliedTimestamp) return;
+  lastAppliedTimestamp = message.timestamp;
+  for (const handler of messageHandlers) {
+    try {
+      handler(message);
+    } catch {
+      // Handler errors must not break other subscribers or the socket.
     }
   }
 }
 
 function connect(): void {
   if (!started) return;
+  connectionState.value = "connecting";
   if (wsClient) {
     wsClient.onopen = null;
     wsClient.onmessage = null;
@@ -67,6 +88,7 @@ function connect(): void {
   wsClient = new WebSocket(websocketUrl());
   wsClient.onopen = () => {
     reconnectDelayMs = 1000;
+    connectionState.value = "connected";
   };
   wsClient.onmessage = (event) => {
     if (typeof event.data === "string") handleIncoming(event.data);
@@ -90,8 +112,8 @@ export function connectWebsocket(): void {
   connect();
 }
 
-/** Subscribe to snapshots. Returns an unsubscribe function. */
-export function onSnapshot(handler: SnapshotHandler): () => void {
-  snapshotHandlers.add(handler);
-  return () => snapshotHandlers.delete(handler);
+/** Subscribe to validated state messages. Returns an unsubscribe function. */
+export function onStateMessage(handler: MessageHandler): () => void {
+  messageHandlers.add(handler);
+  return () => messageHandlers.delete(handler);
 }

@@ -1,5 +1,8 @@
 <template>
-  <footer class="player-bar sticky bottom-0 z-10 shrink-0 rounded-xl border border-neutral-700 px-2 py-2 sm:px-3 md:static surface-panel">
+  <footer class="player-bar sticky bottom-0 z-10 shrink-0 rounded-xl border border-neutral-700 px-2 py-2 sm:px-3 md:static surface-panel relative">
+    <div class="pointer-events-none absolute right-2 top-1">
+      <ConnectionBadge />
+    </div>
     <!-- Mobile: minimal bar — thumbnail, title, play/pause only (controls live in fullscreen player) -->
     <div class="flex md:hidden min-w-0 items-center gap-3">
       <div
@@ -58,6 +61,7 @@
 
     <!-- Desktop: full bar with progress and all controls -->
     <div class="hidden grid items-center gap-3 md:grid md:grid-cols-[minmax(0,1fr)_minmax(340px,560px)_minmax(0,1fr)]">
+
       <div
         class="player-bar-strip flex min-w-0 cursor-pointer items-center gap-3"
         role="button"
@@ -190,6 +194,7 @@ import { useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 
 import { useBreakpoint } from "../composables/useBreakpoint";
+import ConnectionBadge from "./ConnectionBadge.vue";
 import { usePlaybackStore } from "../stores/playback";
 import { SIDEBAR_QUEUE_VIEW, useUiStore, type SidebarView } from "../stores/ui";
 

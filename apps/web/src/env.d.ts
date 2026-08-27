@@ -11,3 +11,7 @@ declare module "*.vue" {
   const component: DefineComponent<Record<string, unknown>, Record<string, unknown>, unknown>;
   export default component;
 }
+
+// App version, injected at build time by vite `define`
+// (root package.json version — see vite.config.ts).
+declare const __APP_VERSION__: string;

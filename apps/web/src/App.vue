@@ -124,6 +124,7 @@ import { useBreakpoint } from "./composables/useBreakpoint";
 import { useLocalPlayback } from "./composables/useLocalPlayback";
 import { useMediaSession } from "./composables/useMediaSession";
 import { initializeLibraryData } from "./lib/api/sync";
+import { refreshServerVersion } from "./lib/api/version";
 import { useFailureNotifications } from "./stores/history";
 import { useNotificationsStore } from "./stores/notifications";
 import { usePlaybackStore } from "./stores/playback";
@@ -157,6 +158,13 @@ useNotificationsStore().initialize(useToast());
 onMounted(async () => {
   uiStore.initialize(route);
   useFailureNotifications();
+  void refreshServerVersion();
   await Promise.allSettled([initializeLibraryData(), playbackStore.initializePlayback()]);
+});
+
+// Deploy-drift watch: a tab left open across a server update keeps running
+// the old bundle (the v2.3.1 stale-tab incident). Re-check on refocus.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") void refreshServerVersion();
 });
 </script>

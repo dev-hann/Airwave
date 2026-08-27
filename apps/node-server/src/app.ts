@@ -21,6 +21,7 @@ import { PlaylistService } from "./playlist-service.ts";
 import type { PlaylistPreview, SearchResultItem } from "./yt-dlp-service.ts";
 import { StreamEngine } from "./stream-engine.ts";
 import { UiEventBroker } from "./ui-events.ts";
+import { resolveAppVersion } from "./version.ts";
 import { buildStateData, serializePlaylist, serializePlaylistEntry, serializeQueueItem } from "./serializers.ts";
 
 const asInt = (value: unknown, fallback: number | null = null): number | null => {
@@ -48,11 +49,14 @@ export interface AppOptions {
   /** Playlist preview (optional). */
   previewPlaylist?: (url: string) => Promise<PlaylistPreview>;
   isPlaylistUrl?: (url: string) => boolean;
+  /** Build identity for GET /api/system/version (defaults to package.json). */
+  appVersion?: string;
 }
 
 export function createApp(options: AppOptions) {
   const app = express();
   app.use(express.json({ limit: "2mb" }));
+  const appVersion = options.appVersion ?? resolveAppVersion();
 
   const repo = new Repository(options.dbPath);
   repo.init();
@@ -115,6 +119,12 @@ export function createApp(options: AppOptions) {
 
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok" });
+  });
+
+  // ---------------------------------------------------------------- system
+
+  app.get("/api/system/version", (_req, res) => {
+    res.json({ version: appVersion });
   });
 
   // ----------------------------------------------------------------- state

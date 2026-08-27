@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import ui from "@nuxt/ui/vite";
@@ -9,8 +11,19 @@ import Pages from "vite-plugin-pages";
 const rootDir = new URL(".", import.meta.url).pathname;
 const serverDist = `${rootDir}/../node-server/static-dist`;
 
+// App version — single source of truth is the ROOT package.json version
+// (bumped with `npm version`, enforced against the git tag in CI). The
+// server reads the same file (apps/node-server/src/version.ts), so a
+// bundle/server mismatch always means a stale browser tab.
+const appVersion = (
+  JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { version?: string }
+).version;
+
 export default defineConfig({
   root: rootDir,
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion ?? "dev"),
+  },
   plugins: [Pages({ dirs: "src/pages", extensions: ["vue"] }), vue(), ui()],
   build: {
     outDir: serverDist,

@@ -82,6 +82,7 @@ afterAll(async () => {
 const WEB_API_CONTRACT: Array<{ method: string; path: string; body?: unknown; query?: Record<string, string> }> = [
   // state / playback
   { method: "GET", path: "/api/state" },
+  { method: "GET", path: "/api/system/version" },
   { method: "POST", path: "/api/playback/play" },
   { method: "POST", path: "/api/playback/previous", body: {} },
   { method: "POST", path: "/api/playback/toggle-pause", body: {} },

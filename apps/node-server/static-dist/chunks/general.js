@@ -1,1 +1,1 @@
-import{_ as e}from"./GeneralSettingsPanel.vue_vue_type_script_setup_true_lang.js";import{d as o,q as a,o as r}from"../app.js";const m=o({__name:"general",setup(n){return(t,_)=>(r(),a(e))}});export{m as default};
+import{_ as e}from"./GeneralSettingsPanel.vue_vue_type_script_setup_true_lang.js";import{d as o,x as a,o as r}from"../app.js";const m=o({__name:"general",setup(n){return(t,_)=>(r(),a(e))}});export{m as default};

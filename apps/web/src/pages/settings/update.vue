@@ -5,11 +5,7 @@
       Manage included binaries (yt-dlp, ffmpeg, ffprobe, deno) and install updates.
     </p>
 
-    <div v-if="loading" class="mt-6 text-sm text-muted">Loading...</div>
-    <div v-else-if="errorMessage" class="mt-6 text-sm text-red-400">{{ errorMessage }}</div>
-
-    <div v-else class="mt-6 space-y-4">
-      <div class="rounded-lg border border-neutral-700 p-4 surface-panel">
+    <div class="mt-6 rounded-lg border border-neutral-700 p-4 surface-panel">
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div class="min-w-0">
             <div class="font-medium flex items-center gap-2">
@@ -24,8 +20,16 @@
               </a>
             </div>
             <div class="mt-1 text-sm text-muted">
-              Installed: {{ appUpdates.current || "dev" }}
+              Server: {{ appVersionLabel }}
               <span v-if="appUpdates.latest"> · Latest: {{ appUpdates.latest }}</span>
+            </div>
+            <div class="mt-1 text-xs text-muted">
+              This tab: v{{ bundleVersion }}
+              <span v-if="versionDrift" class="text-amber-400">
+                — outdated bundle,
+                <a class="underline" href="#" @click.prevent="reloadPage">reload</a>
+                to update
+              </span>
             </div>
             <div v-if="appUpdates.has_update" class="mt-1 text-xs text-primary">
               Update available
@@ -51,8 +55,11 @@
             </span>
           </div>
         </div>
-      </div>
+    </div>
 
+    <div v-if="loading" class="mt-6 text-sm text-muted">Loading...</div>
+    <div v-else-if="errorMessage" class="mt-6 text-sm text-red-400">{{ errorMessage }}</div>
+    <div v-else class="mt-6 space-y-4">
       <div
         v-for="b in binaries"
         :key="b.name"
@@ -159,6 +166,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { fetchJson } from "../../lib/api/http";
+import { bundleVersion, isVersionDrift, refreshServerVersion, serverVersion } from "../../lib/api/version";
 
 interface BinaryStatus {
   name: string;
@@ -200,6 +208,13 @@ const appUpToDate = computed(() => {
   const a = appUpdates.value;
   return Boolean(a.current) && a.current !== "dev" && !a.has_update;
 });
+
+const appVersionLabel = computed(() => serverVersion.value || appUpdates.value.current || "dev");
+const versionDrift = computed(() => isVersionDrift());
+
+function reloadPage(): void {
+  window.location.reload();
+}
 
 const updatesById = computed<Record<string, BinaryUpdate>>(() => {
   const byId: Record<string, BinaryUpdate> = {};
@@ -314,5 +329,8 @@ onUnmounted(() => {
   if (upgradePollTimer) clearInterval(upgradePollTimer ?? undefined);
 });
 
-onMounted(load);
+onMounted(() => {
+  void refreshServerVersion();
+  void load();
+});
 </script>

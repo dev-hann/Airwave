@@ -16,6 +16,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
 
 import { createApp } from "../src/app.ts";
+import { resolveAppVersion } from "../src/version.ts";
 
 let dir: string;
 let app: Awaited<ReturnType<typeof createApp>>;
@@ -38,6 +39,7 @@ beforeAll(async () => {
     dbPath: join(dir, "parity.db"),
     staticDir: join(dir, "no-dist"),
     localMediaRoots: [dir],
+    appVersion: "9.9.9-test",
     trackSource: {
       resolveVideo: async (url) => stubTrack(url),
       normalizeUrl: (url) => url,
@@ -161,5 +163,19 @@ describe("web↔server API parity", () => {
   it("contract table has no duplicates", () => {
     const keys = WEB_API_CONTRACT.map((entry) => `${entry.method} ${entry.path}`);
     expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("GET /api/system/version returns the injected build identity", async () => {
+    const res = await request(base()).get("/api/system/version");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ version: "9.9.9-test" });
+  });
+
+  it("resolveAppVersion reads the root package.json (single source of truth)", () => {
+    expect(resolveAppVersion()).toMatch(/^\d+\.\d+\.\d+/);
+  });
+
+  it("resolveAppVersion: package.json wins over env — branch builds must not fake a drift", () => {
+    expect(resolveAppVersion({ AIRWAVE_APP_VERSION: "v0.0.0-env" })).toMatch(/^\d+\.\d+\.\d+$/);
   });
 });

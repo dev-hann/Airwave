@@ -25,6 +25,22 @@
           </div>
         </RouterLink>
       </nav>
+
+      <!-- Version footer (Grafana-style): one tap from anywhere, out of prime real estate. -->
+      <div class="mt-auto pt-6">
+        <button
+          v-if="versionDrift"
+          type="button"
+          class="text-xs text-warning hover:opacity-80"
+          :title="`Server runs v${serverVersion ?? '?'} — this tab is v${bundleVersion}. Click to reload.`"
+          @click="reloadPage"
+        >
+          v{{ bundleVersion }} — reload to update
+        </button>
+        <span v-else class="select-none text-xs text-muted" :title="`Airwave v${bundleVersion} (this tab's bundle)`">
+          v{{ bundleVersion }}
+        </span>
+      </div>
     </div>
 
     <div v-else class="flex h-full min-h-0 flex-col overflow-hidden">
@@ -79,6 +95,21 @@
       >
         Cookies
       </RouterLink>
+
+      <div class="mt-auto px-4 pt-4">
+        <button
+          v-if="versionDrift"
+          type="button"
+          class="text-xs text-warning hover:opacity-80"
+          :title="`Server runs v${serverVersion ?? '?'} — this tab is v${bundleVersion}. Click to reload.`"
+          @click="reloadPage"
+        >
+          v{{ bundleVersion }} — reload
+        </button>
+        <span v-else class="select-none text-xs text-muted" :title="`Airwave v${bundleVersion} (this tab's bundle)`">
+          v{{ bundleVersion }}
+        </span>
+      </div>
     </nav>
     <div class="min-h-0 flex-1 overflow-auto p-6">
       <RouterView />
@@ -87,14 +118,25 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onMounted } from "vue";
 import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
 
 import { useBreakpoint } from "../composables/useBreakpoint";
+import { bundleVersion, isVersionDrift, refreshServerVersion, serverVersion } from "../lib/api/version";
 
 const route = useRoute();
 const router = useRouter();
 const { isMobile, isTabletLayout } = useBreakpoint();
+
+const versionDrift = computed(() => isVersionDrift());
+
+function reloadPage(): void {
+  window.location.reload();
+}
+
+onMounted(() => {
+  if (!serverVersion.value) void refreshServerVersion();
+});
 
 const settingsItems = [
   {

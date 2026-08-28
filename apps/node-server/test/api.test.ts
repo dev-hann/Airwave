@@ -1,6 +1,6 @@
 /** API integration tests — boot the real Express app with a stub track source. */
 
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve as resolvePath } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -23,14 +23,32 @@ const stubTrack = (url: string): ResolvedTrackLike => ({
   isLive: false,
 });
 
+// Hermetic static fixture emulating the vite build output (app-[hash].js /
+// app-[hash].css / chunks/[name]-[hash].js). CI's node-tests job has no
+// frontend build, so tests must not read the real static-dist.
+const entryJs = "/app-abcdefgh.js";
+const entryCss = "/app-ijklmnop.css";
+const chunkFile = "general-12345678.js";
+let staticDir: string;
+
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "airwave-api-"));
+  staticDir = join(dir, "static-dist");
+  mkdirSync(join(staticDir, "chunks"), { recursive: true });
+  writeFileSync(
+    join(staticDir, "index.html"),
+    `<!doctype html><html><head><link rel="stylesheet" href="${entryCss}"></head>` +
+      `<body><script type="module" src="${entryJs}"></script></body></html>`,
+  );
+  writeFileSync(join(staticDir, "app-abcdefgh.js"), `// stub bundle\n${"console.log('x');".repeat(120)}`);
+  writeFileSync(join(staticDir, "app-ijklmnop.css"), "body{color:red}");
+  writeFileSync(join(staticDir, "chunks", chunkFile), "export default 1;");
   app = createApp({
     dbPath: join(dir, "api.db"),
     ffmpegPath: process.env.AIRWAVE_FFMPEG_PATH ?? "ffmpeg",
     ffprobePath: process.env.AIRWAVE_FFPROBE_PATH ?? "ffprobe",
     hlsDirectory: join(dir, "hls"),
-    staticDir: resolvePath("static-dist"),
+    staticDir,
     trackSource: {
       resolveVideo: async (url) => stubTrack(url),
       normalizeUrl: (url) => url,
@@ -208,15 +226,14 @@ describe("API", () => {
   });
 
   describe("static serving + SPA fallback", () => {
-    // Bundle filenames are content-hashed by the build — read the real names
-    // the generated index.html references instead of hardcoding app.js/app.css.
-    const shell = readFileSync(resolvePath("static-dist/index.html"), "utf8");
-    const entryJs = shell.match(/src="(\/[^"]+\.js)"/)?.[1] ?? "/app.js";
-    const entryCss = shell.match(/href="(\/[^"]+\.css)"/)?.[1] ?? "/app.css";
-    const chunkFile = readdirSync(resolvePath("static-dist/chunks"))[0] ?? "cookies.js";
+    // The shell must reference the hashed entry — parse it back out of the
+    // fixture html the same way a browser would. (Lazy: the fixture is
+    // written in beforeAll, which runs AFTER describe collection.)
+    const resolvedJs = () =>
+      readFileSync(join(staticDir, "index.html"), "utf8").match(/src="(\/[^"]+\.js)"/)?.[1] ?? "/app.js";
 
     it("serves the hashed entry bundle at the path the shell references", async () => {
-      const res = await request(base()).get(entryJs);
+      const res = await request(base()).get(resolvedJs());
       expect(res.status).toBe(200);
       expect(res.headers["content-type"]).toContain("javascript");
       expect(String(res.text ?? "").length).toBeGreaterThan(1000);

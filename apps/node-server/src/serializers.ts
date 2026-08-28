@@ -45,6 +45,7 @@ export function serializeState(
   return {
     mode: state.mode,
     paused: state.paused,
+    loading: state.loading,
     repeat_mode: state.repeatMode,
     shuffle_enabled: state.shuffleEnabled,
     can_seek: Boolean(

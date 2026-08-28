@@ -12,6 +12,7 @@ function initialPlaybackState(): PlaybackStateContract {
   return {
     mode: PlaybackMode.IDLE as PlaybackStateContract["mode"],
     paused: false,
+    loading: false,
     repeat_mode: RepeatMode.OFF as PlaybackStateContract["repeat_mode"],
     shuffle_enabled: false,
     can_seek: false,

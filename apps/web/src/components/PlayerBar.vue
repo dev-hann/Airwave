@@ -27,6 +27,10 @@
         <div class="min-w-0 flex-1">
           <p class="flex items-center gap-1.5 truncate text-sm font-semibold">
             <span class="min-w-0 truncate">{{ playbackState.now_playing_title || "No active track" }}</span>
+            <span v-if="playbackState.loading" class="flex shrink-0 items-center gap-1 text-xs font-normal text-muted">
+              <UIcon name="i-bi-arrow-repeat" class="size-3.5 animate-spin" aria-hidden="true" />
+              <span class="hidden sm:inline">Loading…</span>
+            </span>
             <UButton
               v-if="playbackState.now_playing_id"
               type="button"
@@ -81,6 +85,10 @@
         <div class="min-w-0">
           <p class="flex items-center gap-1.5 truncate text-base font-semibold">
             <span class="min-w-0 truncate">{{ playbackState.now_playing_title || "No active track" }}</span>
+            <span v-if="playbackState.loading" class="flex shrink-0 items-center gap-1 text-xs font-normal text-muted">
+              <UIcon name="i-bi-arrow-repeat" class="size-3.5 animate-spin" aria-hidden="true" />
+              <span class="hidden sm:inline">Loading…</span>
+            </span>
             <UButton
               v-if="playbackState.now_playing_id"
               type="button"

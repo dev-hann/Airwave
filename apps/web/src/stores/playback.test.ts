@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createPinia, setActivePinia } from "pinia";
 
+import * as zodContracts from "@airwave/shared/contracts";
+
 import { postJson } from "../lib/api/http";
 import type { PlaybackStateContract } from "../types/api";
 import { usePlaybackStore } from "./playback";
@@ -24,6 +26,7 @@ function baseState(overrides: Partial<PlaybackStateContract> = {}): PlaybackStat
     now_playing_thumbnail_url: null,
     now_playing_title: "Title",
     paused: false,
+    loading: false,
     progress_percent: 10,
     repeat_mode: "off",
     shuffle_enabled: false,
@@ -32,6 +35,27 @@ function baseState(overrides: Partial<PlaybackStateContract> = {}): PlaybackStat
     ...overrides,
   };
 }
+
+describe("playback store — loading flag", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.mocked(postJson).mockReset().mockResolvedValue({});
+  });
+
+  it("merges loading from state pushes (WS snapshot path)", () => {
+    const store = usePlaybackStore();
+    store.applyPlaybackState(baseState({ loading: true, now_playing_title: "Next Track" }));
+    expect(store.playbackState.loading).toBe(true);
+    store.applyPlaybackState(baseState({ loading: false }));
+    expect(store.playbackState.loading).toBe(false);
+  });
+
+  it("wire schema defaults loading=false for older-server payloads", () => {
+    const { PlaybackStateSchema } = zodContracts;
+    const parsed = PlaybackStateSchema.parse(baseState({ loading: undefined }));
+    expect(parsed.loading).toBe(false);
+  });
+});
 
 describe("playback store — optimistic transport", () => {
   beforeEach(() => {

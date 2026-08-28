@@ -193,6 +193,7 @@ export class StreamEngine {
     this.state.startedAtMonotonicSeconds = null;
     this.state.paused = false;
     this.state.pausedElapsedSeconds = null;
+    this.state.loading = false;
     this.notifyStateChanged();
 
     let silence: SpawnedProcess | null = this.spawnSilenceOrNull();
@@ -242,6 +243,10 @@ export class StreamEngine {
     this.setPlaybackOffset(startOffset);
     this.state.paused = false;
     this.state.pausedElapsedSeconds = null;
+    // Push the new track + "loading" the moment it is chosen — resolution
+    // (yt-dlp) can take seconds and clients would otherwise show no feedback.
+    this.state.loading = true;
+    this.notifyStateChanged();
 
     const itemLike = {
       id: queueItem.id,
@@ -310,16 +315,19 @@ export class StreamEngine {
             this.repo.markPlaybackFinished(queueItem.id, "skipped");
             const reQueued = this.repo.enqueueCycleItems([repeatCycleItemFrom(itemLike)]);
             if (reQueued.length > 0) this.repo.moveItemToFront(reQueued[0]!.id);
+            this.state.loading = false;
             this.notifyStateChanged();
             return;
           }
           // skip / previous / resume_from_stop
           this.repo.markPlaybackFinished(queueItem.id, "skipped");
+          this.state.loading = false;
           this.notifyStateChanged();
           return;
         }
         console.error(`Track ${queueItem.id} failed: ${error instanceof Error ? error.message : String(error)}`);
         this.repo.markPlaybackFinished(queueItem.id, "failed", error instanceof Error ? error.message : String(error));
+        this.state.loading = false;
         this.notifyStateChanged();
         return;
       }
@@ -739,6 +747,7 @@ export class StreamEngine {
 
       const process = this.ffmpeg.spawnForSource(resolved.streamUrl, seekSeconds);
       this.activeProcess = process;
+      this.state.loading = false;
       this.notifyStateChanged();
       process.process.stderr?.on("data", (d: Buffer) => console.error("[ffmpeg-decode]", d.toString().trim()));
 

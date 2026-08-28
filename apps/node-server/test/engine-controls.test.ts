@@ -134,6 +134,24 @@ describe("StreamEngine controls", () => {
     expect(pipeline.spawnUrls.some((s) => s.offset === 30)).toBe(true);
   });
 
+  it("loading flag: pushed true at track start, false from spawn on", async () => {
+    const created = enqueueOne("Load Seq");
+    repo.dequeueNext();
+    const notified: boolean[] = [];
+    const engine = makeEngine(new FakePipeline(), {
+      onStateChange: () => notified.push(engine.state.loading),
+    });
+    await engine.playItemForTest(created[0]!.id);
+    // playItem sets metadata + loading=true BEFORE resolution/spawn (the
+    // click-time feedback contract), spawn clears it. The notify sequence
+    // pins that ordering: first push true, never true again afterwards.
+    expect(notified.length).toBeGreaterThanOrEqual(2);
+    expect(notified[0]).toBe(true);
+    expect(notified.slice(1)).not.toContain(true);
+    expect(engine.state.loading).toBe(false);
+    expect(engine.state.nowPlayingTitle).toBe("Load Seq");
+  });
+
   it("seekToPercent rejects idle, duration-less, and live tracks", async () => {
     const engine = makeEngine(new FakePipeline());
     // idle → false

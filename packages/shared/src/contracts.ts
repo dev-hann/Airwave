@@ -17,6 +17,8 @@ export const QueueStatusSchema = z.enum(["queued", "playing", "completed", "skip
 export const PlaybackStateSchema = z.object({
   mode: PlaybackModeSchema,
   paused: z.boolean(),
+  // default: payloads from an older server lack the field (deploy window)
+  loading: z.boolean().default(false),
   repeat_mode: RepeatModeSchema,
   shuffle_enabled: z.boolean(),
   can_seek: z.boolean(),

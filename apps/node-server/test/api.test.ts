@@ -79,7 +79,7 @@ describe("API", () => {
     expect(res.body.mode).toBeOneOf(["idle", "playing"]);
     expect(typeof res.body.now_playing_is_liked).toBe("boolean");
     expect(Object.keys(res.body).sort()).toEqual([
-      "can_seek", "duration_seconds", "elapsed_seconds", "mode", "now_playing_channel",
+      "can_seek", "duration_seconds", "elapsed_seconds", "loading", "mode", "now_playing_channel",
       "now_playing_id", "now_playing_is_liked",
       "now_playing_is_live", "now_playing_thumbnail_url", "now_playing_title", "paused",
       "progress_percent", "repeat_mode", "shuffle_enabled", "started_at", "stream_url",

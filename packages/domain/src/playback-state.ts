@@ -27,6 +27,8 @@ export interface PlaybackState {
   startedAtEpochSeconds: number | null;
   startedAtMonotonicSeconds: number | null;
   paused: boolean;
+  /** True from the moment a track is chosen until its audio pipeline spawns. */
+  loading: boolean;
   pausedElapsedSeconds: number | null;
   repeatMode: RepeatModeValue;
   shuffleEnabled: boolean;
@@ -44,6 +46,7 @@ export function initialPlaybackState(): PlaybackState {
     startedAtEpochSeconds: null,
     startedAtMonotonicSeconds: null,
     paused: false,
+    loading: false,
     pausedElapsedSeconds: null,
     repeatMode: REPEAT_OFF,
     shuffleEnabled: false,

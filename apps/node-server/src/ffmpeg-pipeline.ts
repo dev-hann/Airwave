@@ -64,10 +64,14 @@ const wrap = (process: import("node:child_process").ChildProcess): SpawnedProces
           process.kill("SIGKILL");
           resolve();
         }, 1000);
-        process.once("exit", () => {
+        // 'close' too: wrap() synthesizes close (not exit) on spawn failure,
+        // and a failed spawn never exits — don't wait out the timer there.
+        const onGone = () => {
           clearTimeout(timer);
           resolve();
-        });
+        };
+        process.once("exit", onGone);
+        process.once("close", onGone);
       }),
   };
 };

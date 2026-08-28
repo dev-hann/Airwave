@@ -22,7 +22,7 @@
 
     <div class="min-w-0 flex-1">
       <p class="truncate text-sm" :title="item.title || item.source_url">
-        {{ item.title || item.source_url }}
+        {{ item.title || "Loading…" }}
       </p>
       <p v-if="showProviderBadge" class="truncate text-xs text-muted">
         <UBadge :label="providerLabel" color="neutral" variant="soft" class="shrink-0" />
@@ -72,7 +72,7 @@ import { usePlaylistSelector } from "../composables/usePlaylistSelector";
 import { useExplorerStore } from "../stores/explorer";
 import { useNotificationsStore } from "../stores/notifications";
 import { usePlaylistsStore } from "../stores/playlists";
-import { useQueueStore } from "../stores/queue";
+import { useQueueStore, type QueueMetaBody } from "../stores/queue";
 import type { DropdownMenuItem } from "@nuxt/ui";
 import type { Playlist } from "../types/api";
 
@@ -135,7 +135,7 @@ async function addToQueue(provider: string | null | undefined, url: string): Pro
     if (provider === "local") {
       await explorerStore.addLocalPath(url);
     } else {
-      await queueStore.addUrl(url);
+      await queueStore.addUrl(url, metaFromBody());
     }
   } catch (error) {
     notifyError("Could not add to queue", error);
@@ -147,8 +147,18 @@ async function playNow(provider: string | null | undefined, url: string): Promis
   if (provider === "local") {
     await explorerStore.playLocalPath(url);
   } else {
-    await queueStore.playUrl(url);
+    await queueStore.playUrl(url, metaFromBody());
   }
+}
+
+/** What this card already knows — lets the server insert instantly. */
+function metaFromBody(): QueueMetaBody {
+  return {
+    title: props.item.title ?? null,
+    channel: props.item.channel ?? null,
+    duration_seconds: props.item.duration_seconds ?? null,
+    thumbnail_url: props.item.thumbnail_url ?? null,
+  };
 }
 
 async function addToPlaylist(playlistId: string, provider: string | null | undefined, url: string): Promise<void> {

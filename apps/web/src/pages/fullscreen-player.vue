@@ -20,7 +20,7 @@
             Playing from {{ playbackState.now_playing_channel || "Radio" }}
           </p>
           <p class="flex items-center justify-center gap-2 truncate text-lg font-bold">
-            <span class="min-w-0 truncate">{{ playbackState.now_playing_title || "No active track" }}</span>
+                <span class="min-w-0 truncate">{{ nowPlayingLabel }}</span>
             <UButton
               v-if="playbackState.now_playing_id"
               type="button"
@@ -78,7 +78,7 @@
             </div>
             <div class="min-w-0 flex-1 pt-1">
               <h2 class="flex items-center gap-2 text-xl font-bold leading-tight">
-                <span class="min-w-0 truncate">{{ playbackState.now_playing_title || "No active track" }}</span>
+            <span class="min-w-0 truncate">{{ nowPlayingLabel }}</span>
                 <UButton
                   v-if="playbackState.now_playing_id"
                   type="button"
@@ -231,6 +231,9 @@ const bgStyle = computed(() => {
   return { backgroundImage: `url(${url})` };
 });
 
+const nowPlayingLabel = computed(() =>
+  playbackState.value.now_playing_title || (playbackState.value.loading ? "Loading…" : "No active track"),
+);
 const playPauseIcon = computed(() =>
   playbackState.value.loading
     ? "i-bi-arrow-repeat"

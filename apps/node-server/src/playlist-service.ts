@@ -99,6 +99,49 @@ export class PlaylistService {
     return { type: "video", count: created.length, title: resolved.title ?? null, item_ids: created.map((item) => item.id) };
   }
 
+  /**
+   * Instant queue insert: no network awaits before the row exists.
+   *
+   * YouTube URLs are inserted immediately using caller-supplied metadata
+   * (search results / history / playlist rows already know it) or as a
+   * title-less placeholder; resolution happens afterwards in the engine
+   * (play flows) or in a background enrichment pass (plain adds). This is
+   * what lets the loading spinner start within milliseconds of a click.
+   */
+  async addUrlImmediate(
+    url: string,
+    meta?: { title?: string | null; channel?: string | null; durationSeconds?: number | null; thumbnailUrl?: string | null },
+  ): Promise<QueueMutationResult & { deferred: boolean }> {
+    const text = (url || "").trim();
+    if (this.ytDlp.isPlaylistUrl(text) || !/youtube\.com|youtu\.be/i.test(text)) {
+      // Playlists (need entry listing) and direct http(s) media (need a
+      // probe) keep the resolving path — they cannot be represented by a
+      // YouTube placeholder row.
+      const result = await this.addUrl(text);
+      return { ...result, deferred: false };
+    }
+    const hasMeta = Boolean(meta && (meta.title || meta.durationSeconds));
+    const entry: EntryInput & { sourceType: string } = {
+      sourceUrl: text,
+      provider: "youtube",
+      providerItemId: null,
+      normalizedUrl: text,
+      sourceType: "youtube",
+      title: hasMeta ? (meta?.title ?? null) : null,
+      channel: hasMeta ? (meta?.channel ?? null) : null,
+      durationSeconds: hasMeta ? (meta?.durationSeconds ?? null) : null,
+      thumbnailUrl: hasMeta ? (meta?.thumbnailUrl ?? null) : null,
+    };
+    const created = this.repository.enqueueItems([toQueueItem(entry)]);
+    return {
+      type: "video",
+      count: created.length,
+      title: entry.title ?? null,
+      item_ids: created.map((item) => item.id),
+      deferred: !hasMeta,
+    };
+  }
+
   async addLocalPath(path: string): Promise<QueueMutationResult> {
     const resolved = this.mediaResolver.resolveLocalFile(path);
     const created = this.repository.enqueueItems([toQueueItem({ ...resolved, provider: "local", sourceType: "local" })]);

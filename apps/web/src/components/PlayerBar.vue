@@ -26,7 +26,7 @@
         </div>
         <div class="min-w-0 flex-1">
           <p class="flex items-center gap-1.5 truncate text-sm font-semibold">
-            <span class="min-w-0 truncate">{{ playbackState.now_playing_title || "No active track" }}</span>
+            <span class="min-w-0 truncate">{{ nowPlayingLabel }}</span>
             <UButton
               v-if="playbackState.now_playing_id"
               type="button"
@@ -80,7 +80,7 @@
         </div>
         <div class="min-w-0">
           <p class="flex items-center gap-1.5 truncate text-base font-semibold">
-            <span class="min-w-0 truncate">{{ playbackState.now_playing_title || "No active track" }}</span>
+            <span class="min-w-0 truncate">{{ nowPlayingLabel }}</span>
             <UButton
               v-if="playbackState.now_playing_id"
               type="button"
@@ -228,6 +228,12 @@ const queueSidebarButtonActive = computed(() => {
   }
   return sidebarView.value === SIDEBAR_QUEUE_VIEW;
 });
+
+// Placeholder inserts (URL paste without metadata) have no title until the
+// engine resolves — show a neutral label while the transport button spins.
+const nowPlayingLabel = computed(() =>
+  playbackState.value.now_playing_title || (playbackState.value.loading ? "Loading…" : "No active track"),
+);
 
 // Loading convention (Spotify/YTM/Apple Music): the transport button itself
 // becomes a spinner while the chosen track resolves; titles swap immediately.

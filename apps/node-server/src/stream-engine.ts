@@ -270,7 +270,23 @@ export class StreamEngine {
           if (!this.running) throw new InterruptedError("stop");
           this.activeProcess = null;
           // Resolution is async in Node: pre-seed before the attempt.
-          await this.ensureResolved(queueItem.id, queueItem.sourceUrl, attempt > 1);
+          const resolved = await this.ensureResolved(queueItem.id, queueItem.sourceUrl, attempt > 1);
+          if (queueItem.title == null) {
+            // Placeholder insert (instant queue add without metadata):
+            // backfill the row + now-playing now that resolution is done,
+            // so the title swaps in as soon as it is known.
+            this.repo.updateItemMetadata(queueItem.id, {
+              title: resolved.title,
+              channel: resolved.channel,
+              durationSeconds: resolved.durationSeconds,
+              thumbnailUrl: resolved.thumbnailUrl,
+            });
+            queueItem.title = resolved.title;
+            this.state.nowPlayingTitle = resolved.title;
+            this.state.nowPlayingChannel = resolved.channel;
+            this.state.nowPlayingDurationSeconds = resolved.durationSeconds;
+            this.notifyStateChanged();
+          }
           const result = await this.runAttempt(itemLike, attempt, startOffset);
           startOffset = result.seekSeconds;
 

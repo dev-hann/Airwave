@@ -11,6 +11,14 @@ interface QueueMutationResult {
   count?: number;
 }
 
+/** Metadata the client already knows — skips the server's resolve round-trip. */
+export interface QueueMetaBody {
+  title?: string | null;
+  channel?: string | null;
+  duration_seconds?: number | null;
+  thumbnail_url?: string | null;
+}
+
 export const useQueueStore = defineStore("queue", () => {
   const notifications = useNotificationsStore();
   const historyStore = useHistoryStore();
@@ -31,9 +39,9 @@ export const useQueueStore = defineStore("queue", () => {
     historyStore.setHistory(historyData);
   }
 
-  async function addUrl(url: string): Promise<void> {
+  async function addUrl(url: string, meta?: QueueMetaBody): Promise<void> {
     try {
-      const result = await postJson<QueueMutationResult>("/api/queue/add", { url });
+      const result = await postJson<QueueMutationResult>("/api/queue/add", { url, ...meta });
       if (result?.type === "playlist") {
         notifications.notifySuccess("Playlist queued", `${result.count || 0} playlist items added to queue.`);
       } else {
@@ -53,9 +61,9 @@ export const useQueueStore = defineStore("queue", () => {
     }
   }
 
-  async function playUrl(url: string): Promise<void> {
+  async function playUrl(url: string, meta?: QueueMetaBody): Promise<void> {
     try {
-      const result = await postJson<QueueMutationResult>("/api/queue/play-now", { url });
+      const result = await postJson<QueueMutationResult>("/api/queue/play-now", { url, ...meta });
       if (result?.type === "playlist") {
         notifications.notifySuccess("Playing playlist", "Queue replaced and playlist playback started.");
       } else {

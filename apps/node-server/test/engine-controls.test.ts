@@ -134,6 +134,26 @@ describe("StreamEngine controls", () => {
     expect(pipeline.spawnUrls.some((s) => s.offset === 30)).toBe(true);
   });
 
+  it("placeholder insert backfills title once resolved", async () => {
+    const created = repo.enqueueItems([
+      {
+        sourceUrl: "u", normalizedUrl: "u", sourceType: "youtube", title: null,
+        provider: "youtube", providerItemId: null, durationSeconds: null,
+        thumbnailUrl: null, playlistId: null,
+      },
+    ]);
+    repo.dequeueNext();
+    const notifiedTitles: (string | null)[] = [];
+    const engine = makeEngine(new FakePipeline(), {
+      onStateChange: () => notifiedTitles.push(engine.state.nowPlayingTitle),
+    });
+    await engine.playItemForTest(created[0]!.id);
+    expect(engine.state.nowPlayingTitle).toBe("Resolved");
+    expect(repo.getItem(created[0]!.id)?.title).toBe("Resolved");
+    // The enrichment push happens during playback (title swaps in when known).
+    expect(notifiedTitles).toContain("Resolved");
+  });
+
   it("loading flag: pushed true at track start, false from spawn on", async () => {
     const created = enqueueOne("Load Seq");
     repo.dequeueNext();

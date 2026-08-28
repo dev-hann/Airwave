@@ -353,6 +353,44 @@ export function createApp(options: AppOptions) {
     res.json(repo.listQueue().map(serializeQueueItem));
   });
 
+  // Optional metadata the web already knows (search/history/playlist rows) —
+  // lets queue inserts skip the yt-dlp resolution round-trip entirely.
+  const readQueueMeta = (body: Record<string, unknown> | undefined) => {
+    const raw = body ?? {};
+    const str = (value: unknown) => (typeof value === "string" && value.trim().length > 0 ? value : null);
+    const num = (value: unknown) =>
+      typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.trunc(value) : null;
+    const title = str(raw.title);
+    const durationSeconds = num(raw.duration_seconds);
+    if (!title && durationSeconds == null) return undefined;
+    return {
+      title,
+      channel: str(raw.channel),
+      durationSeconds,
+      thumbnailUrl: str(raw.thumbnail_url),
+    };
+  };
+
+  // Fill a placeholder queue row once resolution completes (plain adds that
+  // are not about to play). Also seeds the engine's per-item cache so the
+  // eventual playback does not resolve twice.
+  const enrichInBackground = (itemId: number, url: string) => {
+    void (async () => {
+      try {
+        const resolved = await engine.ensureResolved(itemId, url);
+        repo.updateItemMetadata(itemId, {
+          title: resolved.title,
+          channel: resolved.channel,
+          durationSeconds: resolved.durationSeconds,
+          thumbnailUrl: resolved.thumbnailUrl,
+        });
+        publishQueue();
+      } catch {
+        // Leave the placeholder; the engine retries resolution on playback.
+      }
+    })();
+  };
+
   app.post("/api/queue/add", async (req, res) => {
     const url = String(req.body?.url ?? "").trim();
     if (!url) {
@@ -360,9 +398,10 @@ export function createApp(options: AppOptions) {
       return;
     }
     try {
-      const result = await playlistsSvc.addUrl(url);
+      const result = await playlistsSvc.addUrlImmediate(url, readQueueMeta(req.body));
       publishQueue();
-      res.json({ ok: true, ...result });
+      if (result.deferred && result.item_ids[0] != null) enrichInBackground(result.item_ids[0], url);
+      res.json({ ok: true, type: result.type, count: result.count, title: result.title, item_ids: result.item_ids });
     } catch (error) {
       wrapServiceError(res, error);
     }
@@ -407,13 +446,13 @@ export function createApp(options: AppOptions) {
     try {
       const result = ytDlpAdapter.isPlaylistUrl(url)
         ? await playlistsSvc.queuePlaylistUrl(url, true)
-        : await playlistsSvc.addUrl(url);
+        : await playlistsSvc.addUrlImmediate(url, readQueueMeta(req.body));
       if (result.item_ids.length > 0) {
         repo.moveItemToFront(result.item_ids[0]!);
       }
       engine.playNow();
       publishAll();
-      res.json({ ok: true, ...result });
+      res.json({ ok: true, type: result.type, count: result.count, title: result.title, item_ids: result.item_ids });
     } catch (error) {
       wrapServiceError(res, error);
     }

@@ -310,6 +310,32 @@ export class Repository {
       .run();
   }
 
+  /**
+   * Fill queue-item metadata for a placeholder insert (client supplied no
+   * metadata and the server inserted immediately for instant feedback).
+   * Only provided fields are written.
+   */
+  updateItemMetadata(
+    itemId: number,
+    meta: {
+      title?: string | null;
+      channel?: string | null;
+      durationSeconds?: number | null;
+      thumbnailUrl?: string | null;
+    },
+  ): void {
+    const patch: Record<string, unknown> = { updatedAt: new Date().toISOString() };
+    if (meta.title !== undefined) patch.title = meta.title;
+    if (meta.channel !== undefined) patch.channel = meta.channel;
+    if (meta.durationSeconds !== undefined) patch.durationSeconds = meta.durationSeconds;
+    if (meta.thumbnailUrl !== undefined) patch.thumbnailUrl = meta.thumbnailUrl;
+    this.db
+      .update(queueItems)
+      .set(patch)
+      .where(eq(queueItems.id, itemId))
+      .run();
+  }
+
   // --------------------------------------------------------------- history
 
   listHistory(limit = 50): schema.PlayHistoryRow[] {

@@ -3,7 +3,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve as resolvePath } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 
 import { createApp } from "../src/app.js";
@@ -109,6 +109,50 @@ describe("API", () => {
   it("queue add rejects missing url", async () => {
     const res = await request(base()).post("/api/queue/add").send({});
     expect(res.status).toBe(400);
+  });
+
+  it("queue add with client metadata inserts instantly (no resolve round-trip)", async () => {
+    const add = await request(base())
+      .post("/api/queue/add")
+      .send({
+        url: "https://youtu.be/meta1",
+        title: "Meta Title",
+        channel: "Meta Chan",
+        duration_seconds: 123,
+        thumbnail_url: "https://i.ytimg.com/vi/meta1/hqdefault.jpg",
+      });
+    expect(add.status).toBe(200);
+    expect(add.body.title).toBe("Meta Title");
+    const list = await request(base()).get("/api/queue");
+    const row = (list.body as Array<{ source_url: string; title: string | null; duration_seconds: number | null }>).find(
+      (item) => item.source_url === "https://youtu.be/meta1",
+    );
+    expect(row?.title).toBe("Meta Title");
+    expect(row?.duration_seconds).toBe(123);
+  });
+
+  it("queue add without metadata enriches the placeholder in the background", async () => {
+    const add = await request(base()).post("/api/queue/add").send({ url: "https://youtu.be/defer1" });
+    expect(add.status).toBe(200);
+    expect(add.body.title).toBeNull();
+    // Locally the stub resolves within microtasks, so the very first read may
+    // already be enriched — the contract under test: enrichment happens
+    // without any further client action.
+    await vi.waitFor(async () => {
+      const next = await request(base()).get("/api/queue");
+      const updated = (next.body as Array<{ source_url: string; title: string | null }>).find(
+        (item) => item.source_url === "https://youtu.be/defer1",
+      );
+      expect(updated?.title).toBe("Resolved Song");
+    });
+  });
+
+  it("play-now with metadata responds with the client title immediately", async () => {
+    const res = await request(base())
+      .post("/api/queue/play-now")
+      .send({ url: "https://youtu.be/pn1", title: "PN Title" });
+    expect(res.status).toBe(200);
+    expect(res.body.title).toBe("PN Title");
   });
 
   it("playback repeat validates mode", async () => {

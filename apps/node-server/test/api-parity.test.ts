@@ -65,6 +65,15 @@ beforeAll(async () => {
       ],
     }),
     isPlaylistUrl: (url) => url.includes("list="),
+    // Offline stubs for the settings/update surfaces the web calls.
+    binaries: {
+      getBinaries: async () => [
+        { name: "yt-dlp", path: "/bin/yt-dlp", version: "2026.01.01", is_system: false, link: null },
+      ],
+      getUpdates: async () => [{ name: "yt-dlp", current: "2026.01.01", latest: "2026.02.02", has_update: true }],
+      install: async () => undefined,
+    },
+    latestAppRelease: async () => null,
   });
   await app.start(0, "127.0.0.1");
   const port = (app.server.address() as { port: number }).port;
@@ -135,6 +144,17 @@ const WEB_API_CONTRACT: Array<{ method: string; path: string; body?: unknown; qu
   { method: "POST", path: "/api/playlists/entries/1/reorder", body: { new_position: 1 } },
   // import (YouTube only — Spotify removed by decision)
   { method: "POST", path: "/api/playlist/import", body: { url: "https://www.youtube.com/playlist?list=x" } },
+  // settings: provider cookies (Settings → Cookies)
+  { method: "GET", path: "/api/settings/cookies" },
+  { method: "PUT", path: "/api/settings/cookies", body: { provider: "youtube", value: "# Netscape HTTP Cookie File" } },
+  { method: "DELETE", path: "/api/settings/cookies/youtube" },
+  // settings: bundled binaries + app updates (Settings → Update)
+  { method: "GET", path: "/api/binaries" },
+  { method: "GET", path: "/api/binaries/updates" },
+  { method: "POST", path: "/api/binaries/install", body: { name: "yt-dlp", stop_stream_first: false } },
+  { method: "GET", path: "/api/system/updates" },
+  // 503 (no Watchtower) still proves the route exists — the UI hides the button.
+  { method: "POST", path: "/api/system/upgrade" },
 ];
 
 describe("web↔server API parity", () => {

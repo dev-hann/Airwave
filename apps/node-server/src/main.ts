@@ -23,7 +23,10 @@ const dbPath = (() => {
 })();
 mkdirSync(dirname(dbPath) || ".", { recursive: true });
 
-const ytDlp = new YtDlpService(env.AIRWAVE_YT_DLP_PATH ?? "yt-dlp");
+const ytDlpSettingsBridge = { getSetting: (_key: string): string | null => null };
+const ytDlp = new YtDlpService(env.AIRWAVE_YT_DLP_PATH ?? "yt-dlp", {
+  cookieValueFor: (provider) => ytDlpSettingsBridge.getSetting(`cookies:${provider}`),
+});
 const localMediaRoots = (env.AIRWAVE_LOCAL_MEDIA_ROOTS ?? "")
   .split(",")
   .map((part) => part.trim())
@@ -33,6 +36,8 @@ const app = createApp({
   dbPath,
   ffmpegPath: env.AIRWAVE_FFMPEG_PATH ?? "ffmpeg",
   ffprobePath: env.AIRWAVE_FFPROBE_PATH ?? "ffprobe",
+  ytDlpPath: env.AIRWAVE_YT_DLP_PATH ?? "yt-dlp",
+  denoPath: env.AIRWAVE_DENO_PATH ?? "deno",
   hlsDirectory: env.AIRWAVE_HLS_DIR,
   staticDir: env.AIRWAVE_STATIC_DIR ?? resolvePath(here, "../static-dist"),
   localMediaRoots,
@@ -40,6 +45,11 @@ const app = createApp({
   search: (query, limit) => ytDlp.search(query, limit),
   previewPlaylist: (url) => ytDlp.previewPlaylist(url),
   isPlaylistUrl: (url) => ytDlp.isPlaylistUrl(url),
+  watchtowerUrl: env.AIRWAVE_WATCHTOWER_URL,
+  watchtowerToken: env.AIRWAVE_WATCHTOWER_TOKEN,
+  bindSettingsReader: (read) => {
+    ytDlpSettingsBridge.getSetting = read;
+  },
 });
 
 const port = Number(env.AIRWAVE_PORT ?? 8000);

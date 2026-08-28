@@ -6,6 +6,10 @@
  */
 
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import type { ResolvedTrackLike } from "@airwave/domain";
 
@@ -14,6 +18,48 @@ export class YtDlpError extends Error {
     super(message);
     this.name = "YtDlpError";
   }
+}
+
+// ------------------------------------------------------------ cookies
+
+export const COOKIE_PROVIDERS: ReadonlyArray<{ provider: string; label: string }> = [
+  { provider: "youtube", label: "YouTube" },
+];
+
+export function isSupportedCookieProvider(provider: string): boolean {
+  return COOKIE_PROVIDERS.some((entry) => entry.provider === provider);
+}
+
+export function cookieSettingKey(provider: string): string {
+  return `cookies:${provider}`;
+}
+
+/** True for hosts yt-dlp hits for playback sources (Airwave is YouTube-only). */
+export function cookieProviderForUrl(url: string): string | null {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, "");
+    if (host === "youtube.com" || host === "m.youtube.com" || host === "music.youtube.com" || host === "youtu.be") return "youtube";
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+/** True when the stored value is Netscape cookie content rather than a path. */
+export function looksLikeCookieContent(value: string): boolean {
+  const stripped = value.trim();
+  return stripped.startsWith("# Netscape HTTP Cookie File") || stripped.includes("\n") || stripped.includes("\t");
+}
+
+function expandHome(path: string): string {
+  if (!path.startsWith("~")) return path;
+  const home = process.env.HOME ?? process.env.USERPROFILE;
+  return home ? join(home, path.slice(1)) : path;
+}
+
+interface CookieFileCacheEntry {
+  valueHash: string;
+  path: string;
 }
 
 export interface SearchResultItem {
@@ -61,22 +107,64 @@ interface RawEntry {
   formats?: Array<{ url?: string; protocol?: string; acodec?: string; format_id?: string }>;
 }
 
+export interface YtDlpServiceOptions {
+  timeoutMs?: number;
+  /** Stored cookie value per provider (Netscape content or a file path). */
+  cookieValueFor?: (provider: string) => string | null;
+}
+
 export class YtDlpService {
   private readonly ytDlpPath: string;
   private readonly timeoutMs: number;
+  private readonly cookieValueFor: (provider: string) => string | null;
+  private readonly cookieCache = new Map<string, CookieFileCacheEntry>();
 
-  constructor(ytDlpPath: string, timeoutMs = 60_000) {
+  constructor(ytDlpPath: string, options: YtDlpServiceOptions = {}) {
     this.ytDlpPath = ytDlpPath;
-    this.timeoutMs = timeoutMs;
+    this.timeoutMs = options.timeoutMs ?? 60_000;
+    this.cookieValueFor = options.cookieValueFor ?? (() => null);
+  }
+
+  /**
+   * Materialize a cookie file path for the provider: stored value is either
+   * a filesystem path (returned as-is after ~ expansion) or Netscape content
+   * (written to a temp file, cached by content hash to avoid rewrite churn).
+   */
+  resolveCookieFile(provider: string): string | null {
+    const raw = this.cookieValueFor(provider);
+    if (raw === null) return null;
+    const normalized = raw.trim();
+    if (!normalized) return null;
+    if (!looksLikeCookieContent(normalized)) return expandHome(normalized);
+
+    const valueHash = createHash("sha256").update(normalized, "utf8").digest("hex");
+    const cached = this.cookieCache.get(provider);
+    if (cached && cached.valueHash === valueHash) return cached.path;
+
+    if (cached) rmSync(cached.path, { force: true });
+    const directory = join(tmpdir(), "airwave-cookies");
+    mkdirSync(directory, { recursive: true });
+    const path = join(directory, `airwave-cookies-${provider}-${valueHash.slice(0, 12)}.txt`);
+    writeFileSync(path, normalized, "utf8");
+    this.cookieCache.set(provider, { valueHash, path });
+    return path;
+  }
+
+  private cookieFileForUrl(url: string): string | null {
+    const provider = cookieProviderForUrl(url);
+    if (provider === null || !isSupportedCookieProvider(provider)) return null;
+    return this.resolveCookieFile(provider);
   }
 
   async resolveVideo(url: string, forceRefresh = false): Promise<ResolvedTrackLike> {
+    const cookieFile = this.cookieFileForUrl(url);
     const args = [
       "-J", // single JSON dump with the selected format resolved
       "--no-warnings",
       "--no-playlist",
       "-f", "bestaudio[acodec!=none]/bestaudio/best", // top-level url = picked format
       ...(forceRefresh ? ["--no-cache-dir"] : []),
+      ...(cookieFile ? ["--cookies", cookieFile] : []),
       url,
     ];
     const raw = await this.run(args);
@@ -171,7 +259,12 @@ export class YtDlpService {
 
   /** Flat playlist preview: title/channel/entries (no per-video resolution). */
   async previewPlaylist(url: string): Promise<PlaylistPreview> {
-    const raw = await this.run(["-J", "--no-warnings", "--flat-playlist", "--extractor-args", "youtubetab:approximate_metadata", url]);
+    const cookieFile = this.cookieFileForUrl(url);
+    const raw = await this.run([
+      "-J", "--no-warnings", "--flat-playlist", "--extractor-args", "youtubetab:approximate_metadata",
+      ...(cookieFile ? ["--cookies", cookieFile] : []),
+      url,
+    ]);
     let payload: RawEntry & { entries?: RawEntry[] };
     try {
       payload = JSON.parse(raw) as RawEntry & { entries?: RawEntry[] };

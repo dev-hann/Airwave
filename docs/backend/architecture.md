@@ -43,7 +43,7 @@ Queue (SQLite) ──▶ StreamEngine (worker thread)
 | `usecases/play_track.py` | ~300 | One playback attempt: resolve → probe → spawn → chunk loop → verdict (clock injected, unit-tested without waiting) |
 | `services/hls_segmenter.py` | ~290 | HLS packager lifecycle, sliding window, playlist rendering, listener registry |
 | `db/repository/` (package) | ~950 | Facade `Repository` composing store mixins: base (plumbing + shared `_queue_lock`), migrations, queue_store, history_store, playlist_store, settings_store. Import surface frozen (`Repository`, `NewQueueItem`, `NewPlaylistEntry`) |
-| `services/binaries_service.py` | ~715 | yt-dlp/ffmpeg/ffprobe/deno download, install, update |
+| `apps/node-server/src/binaries-service.ts` | ~590 | yt-dlp/ffmpeg/ffprobe/deno status, update checks, install (serves `/api/binaries*`) |
 | `services/playlist_service.py` | ~687 | URL ingestion, playlist preview/import, queue construction |
 | `services/yt_dlp_service.py` | ~440 | Metadata, source resolution, playlist inspection |
 | `services/ffmpeg_pipeline.py` | ~352 | ffmpeg/ffprobe spawn, transcode, probe |
@@ -55,8 +55,11 @@ Queue (SQLite) ──▶ StreamEngine (worker thread)
 
 ## API surface
 
-- `apps/node-server/src/app.ts` is the Express composition: domain-grouped route handlers (health/state/playback/queue/history/playlists/settings + HLS endpoints + ws). Handlers stay thin — validate → stores/engine → serialize.
-- Route handlers live grouped in `apps/node-server/src/app.ts` (health/state/playback/queue/search/media/playlists/import/history/settings + HLS).
+- `apps/node-server/src/app.ts` is the Express composition: domain-grouped route handlers (health/state/playback/queue/history/playlists/settings + binaries/system-updates + HLS endpoints + ws). Handlers stay thin — validate → stores/engine → serialize.
+- Route handlers live grouped in `apps/node-server/src/app.ts` (health/state/playback/queue/search/media/playlists/import/history/settings/binaries/system + HLS).
+- Provider cookie routes (`GET/PUT /api/settings/cookies`, `DELETE /api/settings/cookies/:provider`) are registered BEFORE the generic `/api/settings/:key` KV route — order matters, or the KV route shadows them.
+- Binaries (`/api/binaries`, `/api/binaries/updates`, `/api/binaries/install`) and app updates (`/api/system/updates`, `POST /api/system/upgrade`) are injectable via `AppOptions.binaries` / `latestAppRelease` / `triggerUpgrade` — tests stub them to stay offline. `POST /api/system/upgrade` proxies to a Watchtower HTTP API (`AIRWAVE_WATCHTOWER_URL`/`AIRWAVE_WATCHTOWER_TOKEN`); without it the route answers 503 and the UI hides the button.
+- yt-dlp cookie values (stored under `cookies:<provider>` settings keys) are resolved by `YtDlpService.resolveCookieFile` — Netscape content becomes a temp file (hash-cached), bare tokens are treated as file paths; passed to yt-dlp via `--cookies`.
 - Shared helpers: `app/api/common/` — `models.py` (Pydantic schemas), `serializers.py` (`_serialize_*`, UI snapshot), `dependencies.py` (`_services(request)` accessor). (`responses.py` was removed with the raw-MP3 endpoint.)
 - 73 endpoints under `/api` (72 HTTP + 1 WS) plus root routes in `app/api/root.py` (`/`, `/stream/live.m3u8`, `/stream/{segment}`).
 - OpenAPI docs at `/docs` (auto-generated).

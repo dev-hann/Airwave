@@ -88,7 +88,7 @@ FROM node:22-slim
 ARG APP_VERSION
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates \
+    curl ca-certificates xz-utils \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /app/bin /app/data && \
     chown -R node:node /app

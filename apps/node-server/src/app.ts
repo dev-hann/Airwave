@@ -18,7 +18,9 @@ import { FfmpegPipeline } from "./ffmpeg-pipeline.ts";
 import { HlsSegmenter } from "./hls-segmenter.ts";
 import { MediaSourceResolver } from "./media-resolver.ts";
 import { PlaylistService } from "./playlist-service.ts";
+import { BinariesInstallError, BinariesService, type BinaryStatus, type BinaryUpdateInfo } from "./binaries-service.ts";
 import type { PlaylistPreview, SearchResultItem } from "./yt-dlp-service.ts";
+import { COOKIE_PROVIDERS, cookieSettingKey, isSupportedCookieProvider } from "./yt-dlp-service.ts";
 import { StreamEngine } from "./stream-engine.ts";
 import { UiEventBroker } from "./ui-events.ts";
 import { resolveAppVersion } from "./version.ts";
@@ -51,6 +53,26 @@ export interface AppOptions {
   isPlaylistUrl?: (url: string) => boolean;
   /** Build identity for GET /api/system/version (defaults to package.json). */
   appVersion?: string;
+  /** Bundled-tool paths for /api/binaries (defaults: bare names from PATH). */
+  ytDlpPath?: string;
+  denoPath?: string;
+  /** Binaries manager override (tests inject stubs to stay offline). */
+  binaries?: BinariesLike;
+  /** Watchtower HTTP API for in-app upgrades (empty = upgrade disabled). */
+  watchtowerUrl?: string;
+  watchtowerToken?: string;
+  /** Latest app release tag override (default: GitHub Releases lookup). */
+  latestAppRelease?: () => Promise<string | null>;
+  /** Upgrade trigger override (default: POST to the Watchtower API). */
+  triggerUpgrade?: () => Promise<void>;
+  /** Lets the composition root expose repo settings (yt-dlp cookie values). */
+  bindSettingsReader?: (read: (key: string) => string | null) => void;
+}
+
+export interface BinariesLike {
+  getBinaries(): Promise<BinaryStatus[]>;
+  getUpdates(): Promise<BinaryUpdateInfo[]>;
+  install(name: string): Promise<void>;
 }
 
 export function createApp(options: AppOptions) {
@@ -60,6 +82,18 @@ export function createApp(options: AppOptions) {
 
   const repo = new Repository(options.dbPath);
   repo.init();
+  options.bindSettingsReader?.((key) => repo.getSetting(key));
+
+  const binariesService: BinariesLike =
+    options.binaries ??
+    new BinariesService({
+      ytDlpPath: options.ytDlpPath ?? "yt-dlp",
+      ffmpegPath: options.ffmpegPath ?? "ffmpeg",
+      ffprobePath: options.ffprobePath ?? "ffprobe",
+      denoPath: options.denoPath ?? "deno",
+    });
+  const watchtowerUrl = options.watchtowerUrl?.trim() ?? "";
+  const watchtowerToken = options.watchtowerToken?.trim() ?? "";
 
   const pipeline = new FfmpegPipeline(options.ffmpegPath ?? "ffmpeg", options.ffprobePath ?? "ffprobe", "320k");
   const segmenter = new HlsSegmenter({
@@ -125,6 +159,132 @@ export function createApp(options: AppOptions) {
 
   app.get("/api/system/version", (_req, res) => {
     res.json({ version: appVersion });
+  });
+
+  const APP_RELEASES_URL = "https://github.com/dev-hann/Airwave/releases";
+  const UPDATES_CACHE_TTL_MS = 300_000;
+  const appUpdatesCache: { at: number; latest: string | null } = { at: 0, latest: null };
+
+  const defaultLatestAppRelease = async (): Promise<string | null> => {
+    const response = await fetch("https://api.github.com/repos/dev-hann/Airwave/releases/latest", {
+      headers: { Accept: "application/vnd.github+json", "User-Agent": "Airwave/2.0" },
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!response.ok) return null;
+    const payload = (await response.json().catch(() => null)) as { tag_name?: string } | null;
+    return payload?.tag_name ?? null;
+  };
+
+  /** "v1.2.3"/"1.2.3" → [1,2,3]; unparsable (dev, sha suffixes) → null. */
+  const parseVersionTuple = (value: string | null | undefined): number[] | null => {
+    if (!value) return null;
+    const text = value.trim().replace(/^[vV]+/, "");
+    const parts = text.split(".");
+    if (!parts.length || !parts.every((part) => /^\d+$/.test(part))) return null;
+    return parts.map((part) => Number.parseInt(part, 10));
+  };
+
+  const hasNewerVersion = (current: string | null | undefined, latest: string | null | undefined): boolean => {
+    const currentParts = parseVersionTuple(current);
+    const latestParts = parseVersionTuple(latest);
+    if (!currentParts || !latestParts) return false;
+    for (let i = 0; i < Math.max(currentParts.length, latestParts.length); i += 1) {
+      const left = latestParts[i] ?? 0;
+      const right = currentParts[i] ?? 0;
+      if (left > right) return true;
+      if (left < right) return false;
+    }
+    return false;
+  };
+
+  const defaultTriggerUpgrade = async (): Promise<void> => {
+    if (!watchtowerUrl) return;
+    const headers: Record<string, string> = {};
+    if (watchtowerToken) headers.Authorization = `Bearer ${watchtowerToken}`;
+    // Fire-and-forget: Watchtower may replace this very container.
+    await fetch(`${watchtowerUrl.replace(/\/$/, "")}/v1/update`, {
+      method: "POST",
+      headers,
+      signal: AbortSignal.timeout(5_000),
+    }).catch(() => undefined);
+  };
+
+  app.get("/api/system/updates", async (_req, res) => {
+    if (Date.now() - appUpdatesCache.at > UPDATES_CACHE_TTL_MS) {
+      try {
+        appUpdatesCache.latest = await (options.latestAppRelease ?? defaultLatestAppRelease)();
+      } catch {
+        appUpdatesCache.latest = null;
+      }
+      appUpdatesCache.at = Date.now();
+    }
+    res.json({
+      current: appVersion,
+      latest: appUpdatesCache.latest,
+      has_update: hasNewerVersion(appVersion, appUpdatesCache.latest),
+      can_upgrade: Boolean(watchtowerUrl),
+      releases_url: APP_RELEASES_URL,
+    });
+  });
+
+  app.post("/api/system/upgrade", (_req, res) => {
+    if (!watchtowerUrl) {
+      res.status(503).json({ detail: "App upgrade is not configured (no Watchtower URL)" });
+      return;
+    }
+    void (options.triggerUpgrade ?? defaultTriggerUpgrade)().catch(() => undefined);
+    res.status(202).json({ ok: true, status: "update_triggered" });
+  });
+
+  // -------------------------------------------------------------- binaries
+
+  const binaryInUse = (name: string): boolean =>
+    engine.state.mode === "playing" && (name === "ffmpeg" || name === "yt-dlp");
+
+  app.get("/api/binaries", async (_req, res) => {
+    const binaries = await binariesService.getBinaries();
+    res.json({
+      binaries: binaries.map((binary) => ({
+        name: binary.name,
+        path: binary.path,
+        version: binary.version,
+        is_system: binary.is_system,
+        in_use: binaryInUse(binary.name),
+        link: binary.link,
+      })),
+    });
+  });
+
+  app.get("/api/binaries/updates", async (_req, res) => {
+    res.json({ updates: await binariesService.getUpdates() });
+  });
+
+  app.post("/api/binaries/install", async (req, res) => {
+    const name = req.body?.name;
+    const stopStreamFirst = req.body?.stop_stream_first === true;
+    if (typeof name !== "string" || !/^(yt-dlp|ffmpeg|ffprobe|deno)$/.test(name)) {
+      res.status(400).json({ detail: "name must be one of: yt-dlp, ffmpeg, ffprobe, deno" });
+      return;
+    }
+    // Stop playback first when requested (ffmpeg/yt-dlp may be in use).
+    if (stopStreamFirst && binaryInUse(name)) {
+      engine.skip();
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 2_000));
+    }
+    try {
+      await binariesService.install(name);
+      res.json({ ok: true, name });
+    } catch (error) {
+      if (error instanceof BinariesInstallError) {
+        if (error.kind === "busy") {
+          res.status(409).json({ detail: "binary_in_use" });
+          return;
+        }
+        res.status(400).json({ detail: error.message });
+        return;
+      }
+      res.status(500).json({ detail: error instanceof Error ? error.message : String(error) });
+    }
   });
 
   // ----------------------------------------------------------------- state
@@ -774,6 +934,43 @@ export function createApp(options: AppOptions) {
   });
 
   // --------------------------------------------------------------- settings
+
+  // Provider cookie routes MUST precede the generic :key route below, or
+  // GET /api/settings/cookies would answer the KV shape instead.
+  app.get("/api/settings/cookies", (_req, res) => {
+    res.json({
+      providers: COOKIE_PROVIDERS.map(({ provider, label }) => ({
+        provider,
+        label,
+        configured: Boolean(repo.getSetting(cookieSettingKey(provider))),
+      })),
+    });
+  });
+
+  app.put("/api/settings/cookies", (req, res) => {
+    const provider = typeof req.body?.provider === "string" ? req.body.provider.trim().toLowerCase() : "";
+    const value = req.body?.value;
+    if (!isSupportedCookieProvider(provider)) {
+      res.status(400).json({ detail: "Unsupported cookie provider" });
+      return;
+    }
+    if (typeof value !== "string" || value.length === 0) {
+      res.status(400).json({ detail: "value (non-empty string) required" });
+      return;
+    }
+    repo.setSetting(cookieSettingKey(provider), value);
+    res.json({ ok: true, provider, configured: true });
+  });
+
+  app.delete("/api/settings/cookies/:provider", (req, res) => {
+    const provider = String(req.params.provider ?? "").trim().toLowerCase();
+    if (!isSupportedCookieProvider(provider)) {
+      res.status(400).json({ detail: "Unsupported cookie provider" });
+      return;
+    }
+    repo.clearSetting(cookieSettingKey(provider));
+    res.json({ ok: true, provider, configured: false });
+  });
 
   app.get("/api/settings/:key", (req, res) => {
     res.json({ key: req.params.key, value: repo.getSetting(req.params.key) });

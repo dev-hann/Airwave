@@ -1,6 +1,6 @@
 /** API integration tests — boot the real Express app with a stub track source. */
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve as resolvePath } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -208,21 +208,35 @@ describe("API", () => {
   });
 
   describe("static serving + SPA fallback", () => {
-    it("serves the bundle at root paths (app.js)", async () => {
-      const res = await request(base()).get("/app.js");
+    // Bundle filenames are content-hashed by the build — read the real names
+    // the generated index.html references instead of hardcoding app.js/app.css.
+    const shell = readFileSync(resolvePath("static-dist/index.html"), "utf8");
+    const entryJs = shell.match(/src="(\/[^"]+\.js)"/)?.[1] ?? "/app.js";
+    const entryCss = shell.match(/href="(\/[^"]+\.css)"/)?.[1] ?? "/app.css";
+    const chunkFile = readdirSync(resolvePath("static-dist/chunks"))[0] ?? "cookies.js";
+
+    it("serves the hashed entry bundle at the path the shell references", async () => {
+      const res = await request(base()).get(entryJs);
       expect(res.status).toBe(200);
       expect(res.headers["content-type"]).toContain("javascript");
       expect(String(res.text ?? "").length).toBeGreaterThan(1000);
     });
 
-    it("serves the stylesheet at root path (app.css)", async () => {
-      const res = await request(base()).get("/app.css");
+    it("hashed bundles are immutable (deploy reaches every reload)", async () => {
+      const res = await request(base()).get(entryJs);
+      expect(String(res.headers["cache-control"] ?? "")).toContain("immutable");
+      const css = await request(base()).get(entryCss);
+      expect(String(css.headers["cache-control"] ?? "")).toContain("immutable");
+    });
+
+    it("serves the hashed stylesheet at root path", async () => {
+      const res = await request(base()).get(entryCss);
       expect(res.status).toBe(200);
       expect(res.headers["content-type"]).toContain("css");
     });
 
     it("serves chunk files from subdirectories", async () => {
-      const res = await request(base()).get("/chunks/cookies.js");
+      const res = await request(base()).get(`/chunks/${chunkFile}`);
       expect(res.status).toBe(200);
       expect(res.headers["content-type"]).toContain("javascript");
     });
@@ -231,7 +245,12 @@ describe("API", () => {
       const res = await request(base()).get("/explorer");
       expect(res.status).toBe(200);
       expect(res.headers["content-type"]).toContain("text/html");
-      expect(res.text).toContain("app.js");
+      expect(res.text).toContain(entryJs);
+    });
+
+    it("SPA shell is never stored (fresh filenames on every reload)", async () => {
+      const res = await request(base()).get("/explorer");
+      expect(String(res.headers["cache-control"] ?? "")).toContain("no-store");
     });
 
     it("SPA fallback never swallows unknown API routes", async () => {
@@ -239,7 +258,7 @@ describe("API", () => {
       // The SPA fallback would answer 200 with the shell; a real miss must 404.
       // (Express's default 404 body is text/html "Cannot GET ..." — fine.)
       expect(res.status).toBe(404);
-      expect(res.text).not.toContain("app.js");
+      expect(res.text).not.toContain(entryJs);
     });
   });
 });

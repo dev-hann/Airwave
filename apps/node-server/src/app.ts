@@ -826,10 +826,22 @@ export function createApp(options: AppOptions) {
 
   const staticDir = options.staticDir ?? resolvePath("static-dist");
   // Root mount serves the bundle at the paths index.html references
-  // (/app.js, /app.css, /chunks/*, /assets/*).
-  app.use(express.static(staticDir, { etag: true, maxAge: 0 }));
+  // (app-[hash].js, app-[hash].css, /chunks/*, /assets/*).
+  // Content-hashed files are immutable across builds — cache them hard. The
+  // HTML shell is no-store so every reload sees the current build's filenames.
+  // Unhashed files (if any ever appear) fall through to revalidation.
+  const staticCacheHeaders = (res: Response, filePath: string) => {
+    if (filePath.endsWith(".html")) {
+      res.setHeader("Cache-Control", "no-store");
+      return;
+    }
+    if (/-[-\w]{8}\.(js|css|mjs|woff2?)$/.test(filePath)) {
+      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    }
+  };
+  app.use(express.static(staticDir, { etag: true, maxAge: 0, setHeaders: staticCacheHeaders }));
   // Legacy /static prefix kept for compatibility.
-  app.use("/static", express.static(staticDir, { etag: true, maxAge: 0 }));
+  app.use("/static", express.static(staticDir, { etag: true, maxAge: 0, setHeaders: staticCacheHeaders }));
   // SPA fallback: deep links (/explorer, /playlist/:id) render the shell.
   // Middleware guard (not a wildcard route) — Express 5 '{*splat}' would also
   // swallow unknown /api/* paths, but an unhandled API route must stay a 404.
@@ -839,8 +851,8 @@ export function createApp(options: AppOptions) {
       return;
     }
     try {
-      const html = await readFile(join(staticDir, "index.html"), "utf-8");
-      res.setHeader("Cache-Control", "no-cache");
+      const html = await readFile(join(staticDir, "index.html"), "utf8");
+      res.setHeader("Cache-Control", "no-store");
       res.type("html").send(html);
     } catch {
       res.status(503).send("frontend bundle missing");

@@ -1,9 +1,5 @@
 <template>
   <footer class="player-bar sticky bottom-0 z-10 shrink-0 rounded-xl border border-neutral-700 px-2 py-2 sm:px-3 md:static surface-panel relative">
-    <span
-      class="pointer-events-none absolute left-2 top-1 select-none text-[10px] leading-none text-muted"
-      :title="`Airwave v${bundleVersion} (this tab's bundle)`"
-    >v{{ bundleVersion }}</span>
     <div class="pointer-events-none absolute right-2 top-1 flex items-center gap-2">
       <UpdateBadge />
       <ConnectionBadge />
@@ -199,7 +195,6 @@ import { useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 
 import { useBreakpoint } from "../composables/useBreakpoint";
-import { bundleVersion } from "../lib/api/version";
 import ConnectionBadge from "./ConnectionBadge.vue";
 import UpdateBadge from "./UpdateBadge.vue";
 import { usePlaybackStore } from "../stores/playback";

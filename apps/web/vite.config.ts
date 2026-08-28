@@ -31,13 +31,17 @@ export default defineConfig({
     rollupOptions: {
       input: new URL("index.html", import.meta.url).pathname,
       output: {
-        entryFileNames: "app.js",
-        chunkFileNames: "chunks/[name].js",
+        // Content-hashed filenames: a new build is a new URL, so browsers can
+        // treat bundles as immutable and stale-cache reloads are impossible
+        // (server pairs this with Cache-Control: immutable; the HTML shell is
+        // no-store). See apps/node-server/src/app.ts static serving.
+        entryFileNames: "app-[hash].js",
+        chunkFileNames: "chunks/[name]-[hash].js",
         assetFileNames: (assetInfo) => {
           if (assetInfo.name && assetInfo.name.endsWith(".css")) {
-            return "app.css";
+            return "app-[hash].css";
           }
-          return "assets/[name][extname]";
+          return "assets/[name]-[hash][extname]";
         },
       },
     },

@@ -18,7 +18,8 @@ test.describe("UI shell", () => {
     page.on("console", (message) => {
       if (message.type() === "error") errors.push(message.text());
     });
-    const bundleResponse = page.waitForResponse((response) => response.url().endsWith("/app.js"));
+    // Entry filename is content-hashed (app-[hash].js) — match the pattern.
+    const bundleResponse = page.waitForResponse((response) => /\/app-[\w-]+\.js$/.test(response.url()));
     await page.goto("/");
     const response = await bundleResponse;
     expect(response.status()).toBe(200);

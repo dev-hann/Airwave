@@ -38,7 +38,7 @@
       <!-- Quick CTAs when nothing playing -->
       <div v-else class="mt-4 flex flex-wrap gap-2">
         <UButton type="button" color="primary" variant="solid" size="md" icon="i-bi-search" @click="goToSearch">
-          Search providers
+          Search YouTube
         </UButton>
         <UButton type="button" color="neutral" variant="outline" size="md" icon="i-bi-music-note-list" @click="goToPlaylists">
           Browse playlists
@@ -96,7 +96,7 @@
           />
         </ul>
         <div v-else class="py-6 text-center text-sm text-muted">
-          No playlists yet. Import from a provider URL or create one in the sidebar.
+          No playlists yet. Import a YouTube URL or create one in the sidebar.
         </div>
       </div>
 

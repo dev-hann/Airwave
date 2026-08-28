@@ -151,7 +151,7 @@ const settingsItems = [
   },
   {
     label: "Cookies",
-    description: "Configure provider cookies for yt-dlp.",
+    description: "Configure YouTube cookies for yt-dlp.",
     to: "/settings/cookies",
   },
 ];

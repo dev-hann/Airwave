@@ -1,6 +1,6 @@
 <template>
   <section class="min-h-0 h-full rounded-xl border border-neutral-700 p-6 overflow-auto surface-panel">
-    <h2 class="text-2xl font-bold mb-2">Provider Search</h2>
+    <h2 class="text-2xl font-bold mb-2">Search</h2>
     <p class="mt-1 text-sm text-muted hidden sm:block">
       <template v-if="query">
         Showing results for "{{ query }}"
@@ -35,29 +35,12 @@
     <div v-if="loading" class="mt-4 text-sm text-muted">Searching...</div>
     <div v-else-if="errorMessage" class="mt-4 text-sm text-red-300">{{ errorMessage }}</div>
 
-    <div
-      v-if="query && !loading && !errorMessage"
-      class="mt-4 flex flex-wrap items-center gap-2"
-    >
-      <UButton
-        v-for="filter in providerFilters"
-        :key="filter.id"
-        type="button"
-        size="sm"
-        :variant="selectedProvider === filter.id ? 'solid' : 'outline'"
-        :color="selectedProvider === filter.id ? 'primary' : 'neutral'"
-        @click="() => { selectedProvider = filter.id }"
-      >
-        {{ filter.label }} ({{ providerCounts[filter.id] || 0 }})
-      </UButton>
-    </div>
-
-    <div v-if="query && !loading && !errorMessage && !filteredResults.length" class="mt-4 text-sm text-muted">
+    <div v-if="query && !loading && !errorMessage && !results.length" class="mt-4 text-sm text-muted">
       No results found.
     </div>
 
-    <ul v-if="filteredResults.length" class="mt-4 space-y-2">
-      <li v-for="item in filteredResults" :key="item.provider_item_id || item.source_url">
+    <ul v-if="results.length" class="mt-4 space-y-2">
+      <li v-for="item in results" :key="item.provider_item_id || item.source_url">
         <Song
           :item="item"
           mode="search"
@@ -69,7 +52,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 
@@ -106,42 +89,10 @@ const query = ref("");
 const results = ref<SearchResultItem[]>([]);
 const loading = ref(false);
 const errorMessage = ref("");
-const selectedProvider = ref("all");
 
 function onSearchInputEvent(event: Event): void {
   onSearchTextChange((event.target as HTMLInputElement).value);
 }
-
-function providerLabel(providerId: string): string {
-  if (!providerId || providerId === "all") return "All";
-  return providerId
-    .split(/[\s_-]+/g)
-    .filter(Boolean)
-    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
-    .join(" ");
-}
-
-const providerCounts = computed<Record<string, number>>(() => {
-  const counts: Record<string, number> = { all: results.value.length };
-  for (const item of results.value) {
-    const provider = String(item?.provider || "").toLowerCase();
-    if (!provider) continue;
-    counts[provider] = (counts[provider] || 0) + 1;
-  }
-  return counts;
-});
-
-const providerFilters = computed(() => {
-  const dynamicProviders = Object.keys(providerCounts.value)
-    .filter((id) => id !== "all")
-    .sort();
-  return [{ id: "all", label: providerLabel("all") }, ...dynamicProviders.map((id) => ({ id, label: providerLabel(id) }))];
-});
-
-const filteredResults = computed(() => {
-  if (selectedProvider.value === "all") return results.value;
-  return results.value.filter((item) => item?.provider === selectedProvider.value);
-});
 
 let requestId = 0;
 
@@ -153,7 +104,6 @@ function normalizeQuery(value: unknown): string {
 async function searchAll(rawQuery: unknown): Promise<void> {
   const normalized = normalizeQuery(rawQuery);
   query.value = normalized;
-  selectedProvider.value = "all";
 
   if (!normalized) {
     results.value = [];
@@ -188,10 +138,4 @@ watch(
   },
   { immediate: true },
 );
-
-watch(providerFilters, (filters) => {
-  if (!filters.some((filter) => filter.id === selectedProvider.value)) {
-    selectedProvider.value = "all";
-  }
-});
 </script>

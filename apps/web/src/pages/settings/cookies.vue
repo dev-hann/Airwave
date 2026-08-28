@@ -2,7 +2,7 @@
   <div>
     <h2 class="text-2xl font-bold">Cookies</h2>
     <p class="mt-1 text-sm text-muted">
-      Configure provider-specific cookie values for yt-dlp. You can paste Netscape cookie file content or a file path.
+      Configure YouTube cookies for yt-dlp. You can paste Netscape cookie file content or a file path.
     </p>
     <p class="mt-2 text-sm text-muted">
       <a

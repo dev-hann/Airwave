@@ -24,7 +24,7 @@
       <p class="truncate text-sm" :title="item.title || item.source_url">
         {{ item.title || item.source_url }}
       </p>
-      <p v-if="item.provider" class="truncate text-xs text-muted">
+      <p v-if="showProviderBadge" class="truncate text-xs text-muted">
         <UBadge :label="providerLabel" color="neutral" variant="soft" class="shrink-0" />
       </p>
       <p v-if="showSecondary" class="truncate text-xs text-muted">
@@ -120,6 +120,13 @@ const providerLabel = computed(() => {
   const provider = props.item?.provider;
   if (provider) return provider.charAt(0).toUpperCase() + provider.slice(1);
   return "";
+});
+
+// YouTube is the default source — a badge on every card is noise. Only
+// non-YouTube sources (e.g. local media files) get the badge.
+const showProviderBadge = computed(() => {
+  const provider = props.item?.provider;
+  return Boolean(provider) && provider !== "youtube";
 });
 
 async function addToQueue(provider: string | null | undefined, url: string): Promise<void> {

@@ -90,9 +90,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
+import { useQuery } from "@tanstack/vue-query";
 
 import ExplorerFile from "../components/explorer/ExplorerFile.vue";
 import ExplorerFolder from "../components/explorer/ExplorerFolder.vue";
@@ -115,17 +116,42 @@ const {
 } = explorerStore;
 const { addLocalPathToPlaylist, addLocalFolderToPlaylist } = playlistsStore;
 
-const roots = ref<LocalMediaRoot[]>([]);
 const currentDir = ref("");
 const activeRoot = ref("");
-const entries = ref<LocalMediaEntry[]>([]);
-const loading = ref(false);
-const errorMsg = ref("");
 const includeSubfolders = ref(true);
-const ready = ref(false);
 
 const localPlaylists = computed(() => (playlists.value ?? []).filter((p) => p?.kind !== "remote_youtube"));
 const showingRoots = computed(() => !currentDir.value);
+
+const rootsQuery = useQuery({
+  queryKey: ["media", "roots"],
+  queryFn: () => fetchLocalRoots(),
+  staleTime: Infinity,
+  gcTime: Infinity,
+});
+
+const browseQuery = useQuery({
+  queryKey: computed(() => ["media", "browse", currentDir.value] as const),
+  queryFn: () => browseLocalDirectory(currentDir.value),
+  enabled: computed(() => currentDir.value !== ""),
+  staleTime: 30_000,
+});
+
+const roots = computed<LocalMediaRoot[]>(() => rootsQuery.data.value?.roots ?? []);
+const entries = computed<LocalMediaEntry[]>(() => browseQuery.data.value?.entries ?? []);
+const ready = computed(() => rootsQuery.isSuccess.value || rootsQuery.isError.value);
+const loading = computed(() =>
+  showingRoots.value ? rootsQuery.isPending.value : browseQuery.isPending.value,
+);
+const errorMsg = computed(() => {
+  const rootError = rootsQuery.error.value as { message?: string } | null;
+  if (rootError) return rootError.message || "Could not load media roots";
+  if (!showingRoots.value) {
+    const browseError = browseQuery.error.value as { message?: string } | null;
+    if (browseError) return browseError.message || "Browse failed";
+  }
+  return "";
+});
 function compareEntries(a: LocalMediaEntry, b: LocalMediaEntry): number {
   const aIsDirectory = a?.kind === "directory";
   const bIsDirectory = b?.kind === "directory";
@@ -207,39 +233,6 @@ async function syncRoutePath(path: string): Promise<void> {
   await router.replace({ query: nextQuery });
 }
 
-async function loadRoots(): Promise<void> {
-  loading.value = true;
-  errorMsg.value = "";
-  try {
-    const data = await fetchLocalRoots();
-    roots.value = data.roots ?? [];
-  } catch (error) {
-    errorMsg.value = (error as { message?: string })?.message || "Could not load media roots";
-    roots.value = [];
-  } finally {
-    loading.value = false;
-  }
-}
-
-async function loadDirectory(path: string): Promise<void> {
-  const localPath = path;
-  loading.value = true;
-  errorMsg.value = "";
-  try {
-    const data = await browseLocalDirectory(localPath);
-    if (currentDir.value !== localPath) return;
-    entries.value = data.entries ?? [];
-  } catch (error) {
-    if (currentDir.value !== localPath) return;
-    errorMsg.value = (error as { message?: string })?.message || "Browse failed";
-    entries.value = [];
-  } finally {
-    if (currentDir.value === localPath) {
-      loading.value = false;
-    }
-  }
-}
-
 async function openDirectory(path: string, options: { updateRoute?: boolean } = {}): Promise<void> {
   const { updateRoute = true } = options;
   if (!path) return;
@@ -247,7 +240,6 @@ async function openDirectory(path: string, options: { updateRoute?: boolean } = 
     activeRoot.value = roots.value.some((root) => root.path === path) ? path : activeRoot.value;
   }
   currentDir.value = path;
-  await loadDirectory(path);
   if (updateRoute) {
     await syncRoutePath(path);
   }
@@ -257,8 +249,6 @@ async function showRoots(options: { updateRoute?: boolean } = {}): Promise<void>
   const { updateRoute = true } = options;
   currentDir.value = "";
   activeRoot.value = "";
-  entries.value = [];
-  loading.value = false;
   if (updateRoute) {
     await syncRoutePath("");
   }
@@ -330,9 +320,12 @@ watch(
   },
 );
 
-onMounted(async () => {
-  await loadRoots();
-  ready.value = true;
-  await restorePathFromRoute(route.query.path);
-});
+watch(
+  ready,
+  async (isReady) => {
+    if (!isReady) return;
+    await restorePathFromRoute(route.query.path);
+  },
+  { immediate: true },
+);
 </script>

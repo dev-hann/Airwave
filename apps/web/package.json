@@ -16,6 +16,7 @@
     "@iconify-json/bi": "^1.2.7",
     "@iconify/vue": "^5.0.0",
     "@nuxt/ui": "^4.3.0",
+    "@tanstack/vue-query": "^5.102.7",
     "hls.js": "^1.7.1",
     "pinia": "^4.0.3",
     "tailwindcss": "^4.2.1",

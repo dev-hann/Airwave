@@ -52,15 +52,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
+import { keepPreviousData, useQuery } from "@tanstack/vue-query";
 
 import Song from "../components/Song.vue";
 import { getJson } from "../lib/api/http";
 import { usePlaylistsStore } from "../stores/playlists";
 import { useUiStore } from "../stores/ui";
-import type { Playlist } from "../types/api";
 
 interface SearchResultItem {
   source_url: string;
@@ -85,57 +85,30 @@ void searchText;
 const router = useRouter();
 
 const route = useRoute();
-const query = ref("");
-const results = ref<SearchResultItem[]>([]);
-const loading = ref(false);
-const errorMessage = ref("");
-
-function onSearchInputEvent(event: Event): void {
-  onSearchTextChange((event.target as HTMLInputElement).value);
-}
-
-let requestId = 0;
 
 function normalizeQuery(value: unknown): string {
   if (Array.isArray(value)) return (value[0] as string | undefined || "").trim();
   return typeof value === "string" ? value.trim() : "";
 }
 
-async function searchAll(rawQuery: unknown): Promise<void> {
-  const normalized = normalizeQuery(rawQuery);
-  query.value = normalized;
+const query = computed(() => normalizeQuery(route.query.q));
 
-  if (!normalized) {
-    results.value = [];
-    errorMessage.value = "";
-    loading.value = false;
-    return;
-  }
+const searchQuery = useQuery({
+  queryKey: computed(() => ["search", query.value] as const),
+  queryFn: () => getJson<SearchResponse>("/api/search", { q: query.value, limit: 20 }),
+  enabled: computed(() => query.value !== ""),
+  staleTime: 60_000,
+  placeholderData: keepPreviousData,
+});
 
-  const activeRequestId = ++requestId;
-  loading.value = true;
-  errorMessage.value = "";
+const loading = computed(() => searchQuery.isFetching.value);
+const errorMessage = computed(() => {
+  const error = searchQuery.error.value;
+  return error instanceof Error ? error.message : "";
+});
+const results = computed(() => searchQuery.data.value?.results ?? []);
 
-  try {
-    const payload = await getJson<SearchResponse>("/api/search", { q: normalized, limit: 20 });
-    if (activeRequestId !== requestId) return;
-    results.value = Array.isArray(payload?.results) ? payload.results : [];
-  } catch (error) {
-    if (activeRequestId !== requestId) return;
-    results.value = [];
-    errorMessage.value = error instanceof Error ? error.message : "Search failed";
-  } finally {
-    if (activeRequestId === requestId) {
-      loading.value = false;
-    }
-  }
+function onSearchInputEvent(event: Event): void {
+  onSearchTextChange((event.target as HTMLInputElement).value);
 }
-
-watch(
-  () => route.query.q,
-  (value) => {
-    searchAll(value);
-  },
-  { immediate: true },
-);
 </script>

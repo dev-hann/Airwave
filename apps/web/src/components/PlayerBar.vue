@@ -27,10 +27,6 @@
         <div class="min-w-0 flex-1">
           <p class="flex items-center gap-1.5 truncate text-sm font-semibold">
             <span class="min-w-0 truncate">{{ playbackState.now_playing_title || "No active track" }}</span>
-            <span v-if="playbackState.loading" class="flex shrink-0 items-center gap-1 text-xs font-normal text-muted">
-              <UIcon name="i-bi-arrow-repeat" class="size-3.5 animate-spin" aria-hidden="true" />
-              <span class="hidden sm:inline">Loading…</span>
-            </span>
             <UButton
               v-if="playbackState.now_playing_id"
               type="button"
@@ -59,7 +55,7 @@
         @click.stop="togglePause"
       >
         <span class="flex items-center justify-center size-full">
-          <UIcon :name="playPauseIcon" class="size-6 shrink-0" />
+          <UIcon :name="playPauseIcon" class="size-6 shrink-0" :class="playPauseIconClass" />
         </span>
       </UButton>
     </div>
@@ -85,10 +81,6 @@
         <div class="min-w-0">
           <p class="flex items-center gap-1.5 truncate text-base font-semibold">
             <span class="min-w-0 truncate">{{ playbackState.now_playing_title || "No active track" }}</span>
-            <span v-if="playbackState.loading" class="flex shrink-0 items-center gap-1 text-xs font-normal text-muted">
-              <UIcon name="i-bi-arrow-repeat" class="size-3.5 animate-spin" aria-hidden="true" />
-              <span class="hidden sm:inline">Loading…</span>
-            </span>
             <UButton
               v-if="playbackState.now_playing_id"
               type="button"
@@ -125,11 +117,14 @@
             type="button"
             color="neutral"
             variant="solid"
-            :icon="playPauseIcon"
             aria-label="Toggle play pause"
             class="rounded-full cursor-pointer"
             @click="togglePause"
-          />
+          >
+            <span class="flex items-center justify-center size-full">
+              <UIcon :name="playPauseIcon" class="size-5 shrink-0" :class="playPauseIconClass" />
+            </span>
+          </UButton>
           <UButton type="button" color="neutral" variant="ghost" icon="i-bi-skip-forward-fill" aria-label="Next" class="cursor-pointer" @click="skipCurrent" />
           <UButton
             type="button"
@@ -234,9 +229,16 @@ const queueSidebarButtonActive = computed(() => {
   return sidebarView.value === SIDEBAR_QUEUE_VIEW;
 });
 
+// Loading convention (Spotify/YTM/Apple Music): the transport button itself
+// becomes a spinner while the chosen track resolves; titles swap immediately.
 const playPauseIcon = computed(() =>
-  playbackState.value.mode === "playing" && !playbackState.value.paused ? "i-bi-pause-fill" : "i-bi-play-fill"
+  playbackState.value.loading
+    ? "i-bi-arrow-repeat"
+    : playbackState.value.mode === "playing" && !playbackState.value.paused
+      ? "i-bi-pause-fill"
+      : "i-bi-play-fill",
 );
+const playPauseIconClass = computed(() => (playbackState.value.loading ? "animate-spin" : ""));
 
 const repeatIcon = computed(() => (playbackState.value.repeat_mode === "one" ? "i-bi-repeat-1" : "i-bi-repeat"));
 const repeatLabel = computed(() => {

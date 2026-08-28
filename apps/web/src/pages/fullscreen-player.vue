@@ -21,10 +21,6 @@
           </p>
           <p class="flex items-center justify-center gap-2 truncate text-lg font-bold">
             <span class="min-w-0 truncate">{{ playbackState.now_playing_title || "No active track" }}</span>
-            <span v-if="playbackState.loading" class="flex shrink-0 items-center gap-1 text-xs font-normal text-muted">
-              <UIcon name="i-bi-arrow-repeat" class="size-3.5 animate-spin" aria-hidden="true" />
-              Loading…
-            </span>
             <UButton
               v-if="playbackState.now_playing_id"
               type="button"
@@ -83,10 +79,6 @@
             <div class="min-w-0 flex-1 pt-1">
               <h2 class="flex items-center gap-2 text-xl font-bold leading-tight">
                 <span class="min-w-0 truncate">{{ playbackState.now_playing_title || "No active track" }}</span>
-                <span v-if="playbackState.loading" class="flex shrink-0 items-center gap-1 text-xs font-normal text-muted">
-                  <UIcon name="i-bi-arrow-repeat" class="size-3.5 animate-spin" aria-hidden="true" />
-                  Loading…
-                </span>
                 <UButton
                   v-if="playbackState.now_playing_id"
                   type="button"
@@ -159,9 +151,9 @@
             aria-label="Play / Pause"
             @click="togglePause"
           >
-            <span class="flex size-full items-center justify-center">
-              <UIcon :name="playPauseIcon" class="size-8 shrink-0" />
-            </span>
+        <span class="flex size-full items-center justify-center">
+          <UIcon :name="playPauseIcon" class="size-8 shrink-0" :class="playPauseIconClass" />
+        </span>
           </UButton>
           <UButton
             type="button"
@@ -240,8 +232,13 @@ const bgStyle = computed(() => {
 });
 
 const playPauseIcon = computed(() =>
-  playbackState.value.mode === "playing" && !playbackState.value.paused ? "i-bi-pause-fill" : "i-bi-play-fill"
+  playbackState.value.loading
+    ? "i-bi-arrow-repeat"
+    : playbackState.value.mode === "playing" && !playbackState.value.paused
+      ? "i-bi-pause-fill"
+      : "i-bi-play-fill",
 );
+const playPauseIconClass = computed(() => (playbackState.value.loading ? "animate-spin" : ""));
 const repeatIcon = computed(() => (playbackState.value.repeat_mode === RepeatMode.ONE ? "i-bi-repeat-1" : "i-bi-repeat"));
 const repeatLabel = computed(() => {
   if (playbackState.value.repeat_mode === RepeatMode.ALL) return "Repeat all";

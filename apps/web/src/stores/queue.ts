@@ -41,12 +41,7 @@ export const useQueueStore = defineStore("queue", () => {
 
   async function addUrl(url: string, meta?: QueueMetaBody): Promise<void> {
     try {
-      const result = await postJson<QueueMutationResult>("/api/queue/add", { url, ...meta });
-      if (result?.type === "playlist") {
-        notifications.notifySuccess("Playlist queued", `${result.count || 0} playlist items added to queue.`);
-      } else {
-        notifications.notifySuccess("Added to queue", "URL added successfully.");
-      }
+      await postJson<QueueMutationResult>("/api/queue/add", { url, ...meta });
     } catch (error) {
       notifications.notifyError("Could not add URL", error);
     }
@@ -55,7 +50,6 @@ export const useQueueStore = defineStore("queue", () => {
   async function removeFromQueue(itemId: number | string): Promise<void> {
     try {
       await deleteJson(`/api/queue/${itemId}`);
-      notifications.notifySuccess("Removed from queue", "Item removed from queue.");
     } catch (error) {
       notifications.notifyError("Could not remove from queue", error);
     }
@@ -63,12 +57,7 @@ export const useQueueStore = defineStore("queue", () => {
 
   async function playUrl(url: string, meta?: QueueMetaBody): Promise<void> {
     try {
-      const result = await postJson<QueueMutationResult>("/api/queue/play-now", { url, ...meta });
-      if (result?.type === "playlist") {
-        notifications.notifySuccess("Playing playlist", "Queue replaced and playlist playback started.");
-      } else {
-        notifications.notifySuccess("Playing now", "URL queued and playback started.");
-      }
+      await postJson<QueueMutationResult>("/api/queue/play-now", { url, ...meta });
     } catch (error) {
       notifications.notifyError("Could not play URL", error);
     }
@@ -77,7 +66,6 @@ export const useQueueStore = defineStore("queue", () => {
   async function clearQueue(): Promise<void> {
     try {
       await deleteJson("/api/queue");
-      notifications.notifySuccess("Queue cleared", "Queued tracks removed.");
     } catch (error) {
       notifications.notifyError("Could not clear queue", error);
     }

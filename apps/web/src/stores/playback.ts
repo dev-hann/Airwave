@@ -168,12 +168,7 @@ export const usePlaybackStore = defineStore("playback", () => {
 
   async function likeCurrentSong(): Promise<void> {
     try {
-      const result = await postJson<{ skipped_duplicates?: boolean }>("/api/state/like");
-      if (result?.skipped_duplicates) {
-        notifications.notifySuccess("Already liked", "This track is already in Liked Songs.");
-      } else {
-        notifications.notifySuccess("Liked", "Added to Liked Songs.");
-      }
+      await postJson<{ skipped_duplicates?: boolean }>("/api/state/like");
       // state (now_playing_is_liked, playlists) arrives via the WS push.
     } catch (error) {
       notifications.notifyError("Could not like song", error);
@@ -182,12 +177,7 @@ export const usePlaybackStore = defineStore("playback", () => {
 
   async function unlikeCurrentSong(): Promise<void> {
     try {
-      const result = await postJson<{ removed?: number }>("/api/state/unlike");
-      if ((result?.removed ?? 0) > 0) {
-        notifications.notifySuccess("Unliked", "Removed from Liked Songs.");
-      } else {
-        notifications.notifySuccess("Not in Liked Songs", "This track was not in Liked Songs.");
-      }
+      await postJson<{ removed?: number }>("/api/state/unlike");
       // state + playlists arrive via the WS push.
     } catch (error) {
       notifications.notifyError("Could not unlike song", error);

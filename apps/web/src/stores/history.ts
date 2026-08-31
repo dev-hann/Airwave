@@ -25,7 +25,6 @@ export const useHistoryStore = defineStore("history", () => {
     // latent bug fixed here).
     try {
       await postJson("/api/history/clear");
-      notifications.notifySuccess("History cleared", "Playback history removed.");
     } catch (error) {
       notifications.notifyError("Could not clear history", error);
     }

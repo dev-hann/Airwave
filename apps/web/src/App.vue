@@ -1,5 +1,5 @@
 <template>
-  <UApp :toaster="{ position: 'bottom-right' }">
+  <UApp :toaster="{ position: 'top-right' }">
     <template v-if="isFullScreenPlayerRoute">
       <RouterView v-slot="{ Component }">
         <component :is="Component" />

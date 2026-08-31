@@ -27,14 +27,13 @@ export const useNotificationsStore = defineStore("notifications", {
     initialize(toast: ToastApi) {
       this.toast = toast;
     },
-    notifySuccess(title: string, description?: string) {
-      this.toast?.add({
-        title,
-        description,
-        color: "success",
-        icon: "i-bi-check-lg",
-        type: "foreground",
-      });
+    // Success toasts removed by decision (v2.3.9): every success now has
+    // intrinsic WS-driven feedback (queue row appears, spinner, heart flip)
+    // and toasts obstructed the player controls. No-op kept so legacy call
+    // sites (confirm-modal callbacks) keep compiling.
+    notifySuccess(_title: string, _description?: string) {
+      void _title;
+      void _description;
     },
     notifyError(title: string, error: unknown) {
       this.toast?.add({
@@ -42,7 +41,8 @@ export const useNotificationsStore = defineStore("notifications", {
         description: formatErrorMessage(error),
         color: "error",
         icon: "i-bi-exclamation-triangle-fill",
-        type: "foreground",
+        // background = auto-dismiss: errors must inform, never camp on the UI.
+        type: "background",
       });
     },
   },

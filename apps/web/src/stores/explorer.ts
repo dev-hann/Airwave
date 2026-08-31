@@ -43,19 +43,7 @@ export const useExplorerStore = defineStore("explorer", () => {
 
   async function addLocalPath(path: string): Promise<void> {
     try {
-      const result = await postJson<LocalQueueMutationResult>("/api/queue/add-local", { path });
-      if (result?.type === "playlist") {
-        notifications.notifySuccess("Playlist queued", `${result.count || 0} items added.`);
-      } else if (result?.type === "folder") {
-        const n = result.count ?? 0;
-        const sk = result.skipped;
-        notifications.notifySuccess(
-          "Folder queued",
-          sk ? `${n} tracks queued (${sk} skipped).` : `${n} tracks queued.`,
-        );
-      } else {
-        notifications.notifySuccess("Added to queue", "Local file queued.");
-      }
+      await postJson<LocalQueueMutationResult>("/api/queue/add-local", { path });
     } catch (error) {
       notifications.notifyError("Could not add local file", error);
     }
@@ -64,13 +52,7 @@ export const useExplorerStore = defineStore("explorer", () => {
   async function addLocalFolder(path: string, options: { recursive?: boolean } = {}): Promise<void> {
     const { recursive = true } = options;
     try {
-      const result = await postJson<LocalQueueMutationResult>("/api/queue/add-local-folder", { path, recursive });
-      const n = result?.count ?? 0;
-      const sk = result?.skipped;
-      notifications.notifySuccess(
-        "Folder queued",
-        sk ? `${n} tracks queued (${sk} skipped).` : `${n} tracks queued.`,
-      );
+      await postJson<LocalQueueMutationResult>("/api/queue/add-local-folder", { path, recursive });
     } catch (error) {
       notifications.notifyError("Could not queue folder", error);
     }
@@ -79,7 +61,6 @@ export const useExplorerStore = defineStore("explorer", () => {
   async function playLocalPath(path: string): Promise<void> {
     try {
       await postJson("/api/queue/play-now-local", { path });
-      notifications.notifySuccess("Playing now", "Local file playback started.");
     } catch (error) {
       notifications.notifyError("Could not play local file", error);
     }
@@ -88,12 +69,10 @@ export const useExplorerStore = defineStore("explorer", () => {
   async function playLocalFolder(path: string, options: { recursive?: boolean } = {}): Promise<void> {
     const { recursive = true } = options;
     try {
-      const result = await postJson<LocalQueueMutationResult>("/api/queue/play-now-local-folder", {
+      await postJson<LocalQueueMutationResult>("/api/queue/play-now-local-folder", {
         path,
         recursive,
       });
-      const n = result?.count ?? 0;
-      notifications.notifySuccess("Playing now", `${n} tracks queued; playback started.`);
     } catch (error) {
       notifications.notifyError("Could not play folder", error);
     }

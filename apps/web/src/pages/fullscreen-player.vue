@@ -27,7 +27,7 @@
               :color="playbackState.now_playing_is_liked ? 'success' : 'neutral'"
               variant="ghost"
               size="xs"
-              class="shrink-0 p-0.5"
+              class="shrink-0 p-1.5 -m-1"
               :aria-label="playbackState.now_playing_is_liked ? 'Unlike current song' : 'Like current song'"
               @click.stop.prevent="toggleLikeCurrentSong"
             >
@@ -85,7 +85,7 @@
                   :color="playbackState.now_playing_is_liked ? 'success' : 'neutral'"
                   variant="ghost"
                   size="xs"
-                  class="shrink-0 p-0.5"
+                  class="shrink-0 p-1.5 -m-1"
                   :aria-label="playbackState.now_playing_is_liked ? 'Unlike current song' : 'Like current song'"
                   @click.stop.prevent="toggleLikeCurrentSong"
                 >

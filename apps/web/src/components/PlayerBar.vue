@@ -12,6 +12,8 @@
         tabindex="0"
         aria-label="Go to fullscreen player"
         @click="onStripClick"
+        @keydown.enter="onStripClick"
+        @keydown.space.prevent="onStripClick"
       >
         <div class="h-12 w-12 shrink-0 overflow-hidden rounded-md border border-neutral-700 surface-elevated">
           <img
@@ -33,7 +35,7 @@
               :color="playbackState.now_playing_is_liked ? 'success' : 'neutral'"
               variant="ghost"
               size="xs"
-              class="shrink-0 p-0.5"
+              class="shrink-0 p-1.5 -m-1"
               :aria-label="playbackState.now_playing_is_liked ? 'Unlike current song' : 'Like current song'"
               @click.stop.prevent="toggleLikeCurrentSong"
             >
@@ -67,8 +69,10 @@
         class="player-bar-strip flex min-w-0 cursor-pointer items-center gap-3"
         role="button"
         tabindex="0"
-        aria-label="Go to fullscreen player"        
+        aria-label="Go to fullscreen player"
         @click="onStripClick"
+        @keydown.enter="onStripClick"
+        @keydown.space.prevent="onStripClick"
       >
         <div class="h-12 w-12 shrink-0 overflow-hidden rounded-md border border-neutral-700 surface-elevated">
           <img
@@ -87,7 +91,7 @@
               :color="playbackState.now_playing_is_liked ? 'success' : 'neutral'"
               variant="ghost"
               size="xs"
-              class="shrink-0 p-0.5"
+              class="shrink-0 p-1.5 -m-1"
               :aria-label="playbackState.now_playing_is_liked ? 'Unlike current song' : 'Like current song'"
               @click.stop.prevent="toggleLikeCurrentSong"
             >

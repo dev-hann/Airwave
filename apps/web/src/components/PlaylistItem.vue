@@ -2,7 +2,11 @@
   <li
     class="group flex items-start gap-2 rounded-md border p-2 cursor-pointer transition-colors playlist-card"
     :class="isActive ? 'bg-primary-500/20' : 'hover:bg-neutral-700/50'"
+    role="button"
+    tabindex="0"
     @click="$emit('click')"
+    @keydown.enter="$emit('click')"
+    @keydown.space.prevent="$emit('click')"
   >
     <div
       class="min-w-0 flex-1 flex items-center gap-2 rounded py-1.5 -m-1"

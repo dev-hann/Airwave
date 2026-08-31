@@ -3,7 +3,12 @@
     <div
       v-if="thumbnailSrc && mode == 'search'"
       class="relative h-14 w-24 shrink-0 overflow-hidden rounded surface-elevated"
+      role="button"
+      tabindex="0"
+      :aria-label="`Play ${item.title || 'track'}`"
       @click="playNow(item.provider, item.source_url)"
+      @keydown.enter="playNow(item.provider, item.source_url)"
+      @keydown.space.prevent="playNow(item.provider, item.source_url)"
     >
       <img
         :src="thumbnailSrc"
